@@ -13,16 +13,15 @@ npm install
 ```bash
 PORT=5000
 FRONTEND_URL=http://localhost:5173
-FIREBASE_PROJECT_ID=ticketing-9965a
-FIREBASE_API_KEY=AIzaSyA5atsWG-tRpSJLMHSqiVUG5let0sb87Uo
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+MONGODB_URI=mongodb://localhost:27017/ticketing
 ```
 **Important:** Change `JWT_SECRET` to a strong random string in production!
 
-3. For production, set up Firebase Admin SDK service account:
-   - Download service account key from Firebase Console
-   - Place it in the backend directory as `serviceAccountKey.json`
-   - Or set `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path
+3. Set up MongoDB:
+   - Ensure MongoDB is running on your system
+   - Update `MONGODB_URI` in `.env` with your MongoDB connection string
+   - The application will automatically create the necessary collections and indexes
 
 ## Running
 
@@ -133,7 +132,8 @@ Sends a password reset email to the user.
 
 ## Notes
 
-- The backend uses Firebase Admin SDK for server-side operations
+- The backend uses MongoDB for all data storage and operations
 - Password reset emails are generated but need to be sent via an email service (EmailJS, SendGrid, etc.)
 - For production, ensure CORS is properly configured for your frontend domain
+- All authentication is handled via JWT tokens stored in MongoDB
 

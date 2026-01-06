@@ -7,29 +7,22 @@
    npm install
    ```
 
-2. **Create `.env` file** (already created with default values):
+2. **Create `.env` file**:
    ```
    PORT=5000
    FRONTEND_URL=http://localhost:5173
-   FIREBASE_PROJECT_ID=ticketing-9965a
-   FIREBASE_API_KEY=AIzaSyA5atsWG-tRpSJLMHSqiVUG5let0sb87Uo
+   JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+   MONGODB_URI=mongodb://localhost:27017/ticketing
    ```
+   **Important:** Change `JWT_SECRET` to a strong random string in production!
 
-3. **Set up Firebase Admin SDK credentials** (Required for production):
-
-   **Option A: Service Account Key (Recommended)**
-   - Go to Firebase Console → Project Settings → Service Accounts
-   - Click "Generate New Private Key"
-   - Save the JSON file as `serviceAccountKey.json` in the `backend/` folder
-   - Add to `.env`:
+3. **Set up MongoDB:**
+   - Ensure MongoDB is running on your system
+   - Update `MONGODB_URI` in `.env` with your MongoDB connection string
+   - For production, use a connection string with authentication:
      ```
-     GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
+     MONGODB_URI=mongodb://username:password@host:27017/ticketing?authSource=admin
      ```
-
-   **Option B: Application Default Credentials (For local development)**
-   - Install Google Cloud SDK
-   - Run: `gcloud auth application-default login`
-   - This will use your Google account credentials
 
 4. **Run the server:**
    ```bash
@@ -56,9 +49,10 @@ curl http://localhost:5000/health
 ### Error: "Cannot find package 'express'"
 - Run `npm install` in the `backend/` directory
 
-### Error: "Firebase Admin initialization error"
-- You need to set up Firebase service account credentials (see step 3 above)
-- For quick testing, you can use Application Default Credentials
+### Error: "MongoDB connection error"
+- Check if MongoDB is running on your system
+- Verify the `MONGODB_URI` in your `.env` file is correct
+- Ensure MongoDB is accessible from your application
 
 ### Error: "Cannot connect to server"
 - Check if port 5000 is already in use
