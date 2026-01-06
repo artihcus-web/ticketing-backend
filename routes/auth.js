@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import { getDB } from '../config/mongodb.js';
 import { generateToken, verifyToken } from '../middleware/auth.js';
+import { ObjectId } from 'mongodb';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
