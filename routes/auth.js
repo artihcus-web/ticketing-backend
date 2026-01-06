@@ -289,7 +289,14 @@ router.get('/verify', verifyToken, async (req, res) => {
     const db = await getDB();
     const usersCollection = db.collection('users');
     
-    const user = await usersCollection.findOne({ _id: userId });
+    // Try to find user by ObjectId first, then by string
+    let user;
+    try {
+      user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+    } catch (err) {
+      // If ObjectId conversion fails, try as string
+      user = await usersCollection.findOne({ _id: userId });
+    }
     
     if (!user) {
       return res.status(404).json({

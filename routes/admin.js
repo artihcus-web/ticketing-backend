@@ -214,4 +214,50 @@ router.get('/projects', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+// GET /admin/tickets - Get all tickets (admin only)
+router.get('/tickets', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
+    const tickets = await ticketsCollection.find({}).sort({ created: -1 }).toArray();
+
+    const formattedTickets = tickets.map(ticket => ({
+      id: ticket._id.toString(),
+      ticketNumber: ticket.ticketNumber || '',
+      subject: ticket.subject || '',
+      email: ticket.email || '',
+      customer: ticket.customer || '',
+      project: ticket.project || '',
+      projectId: ticket.projectId || '',
+      module: ticket.module || '',
+      category: ticket.category || '',
+      subCategory: ticket.subCategory || '',
+      typeOfIssue: ticket.typeOfIssue || '',
+      priority: ticket.priority || 'Medium',
+      description: ticket.description || '',
+      status: ticket.status || 'Open',
+      created: ticket.created instanceof Date ? ticket.created.toISOString() : (ticket.created || new Date().toISOString()),
+      lastUpdated: ticket.lastUpdated instanceof Date ? ticket.lastUpdated.toISOString() : (ticket.lastUpdated || new Date().toISOString()),
+      assignedTo: ticket.assignedTo || null,
+      comments: ticket.comments || [],
+      attachments: ticket.attachments || [],
+      starred: ticket.starred || false,
+      userId: ticket.userId || '',
+      reportedBy: ticket.reportedBy || '',
+      _id: undefined
+    }));
+
+    res.json({
+      success: true,
+      tickets: formattedTickets
+    });
+  } catch (error) {
+    console.error('Error fetching admin tickets:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch tickets'
+    });
+  }
+});
+
 export default router;
