@@ -1,0 +1,37 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import authRoutes from './routes/auth.js';
+import ticketRoutes from './routes/tickets.js';
+import projectRoutes from './routes/projects.js';
+import adminRoutes from './routes/admin.js';
+import dashboardRoutes from './routes/dashboards.js';
+import teamRoutes from './routes/team.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.use('/auth', authRoutes);
+app.use('/tickets', ticketRoutes);
+app.use('/projects', projectRoutes);
+app.use('/admin', adminRoutes);
+app.use('/dashboards', dashboardRoutes);
+app.use('/team', teamRoutes);
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Backend is running' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
+
