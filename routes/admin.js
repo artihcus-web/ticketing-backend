@@ -148,13 +148,32 @@ router.get('/ticket-stats', verifyToken, isAdmin, async (req, res) => {
       });
     });
 
+    // Get recent activity (last 10 tickets)
+    const recentActivity = tickets
+      .sort((a, b) => {
+        const dateA = a.created instanceof Date ? a.created : new Date(a.created || 0);
+        const dateB = b.created instanceof Date ? b.created : new Date(b.created || 0);
+        return dateB - dateA;
+      })
+      .slice(0, 10)
+      .map(ticket => ({
+        id: ticket._id.toString(),
+        ticketNumber: ticket.ticketNumber || '',
+        subject: ticket.subject || '',
+        status: ticket.status || 'Open',
+        priority: ticket.priority || 'Medium',
+        created: ticket.created instanceof Date ? ticket.created.toISOString() : (ticket.created || new Date().toISOString()),
+        email: ticket.email || ''
+      }));
+
     res.json({
       success: true,
       ticketStats: {
-        statusCounts,
-        priorityCounts,
+        byStatus: statusCounts,
+        byPriority: priorityCounts,
         ticketsOverTime,
-        totalTickets: tickets.length
+        totalTickets: tickets.length,
+        recentActivity
       }
     });
   } catch (error) {
