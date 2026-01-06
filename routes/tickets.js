@@ -1,7 +1,7 @@
 import express from 'express';
-import { db } from '../config/firebase.js';
+import { getDB } from '../config/mongodb.js';
 import { verifyToken } from '../middleware/auth.js';
-import admin from 'firebase-admin';
+import { ObjectId } from 'mongodb';
 
 const router = express.Router();
 
@@ -28,27 +28,36 @@ const getNextTicketNumber = async (typeOfIssue) => {
     startValue = 100000;
   }
   
-  const counterRef = db.collection('counters').doc(counterDocId);
-  return await db.runTransaction(async (transaction) => {
-    const counterDoc = await transaction.get(counterRef);
-    let current = startValue - 1;
-    if (counterDoc.exists) {
-      current = counterDoc.data().value;
+  const db = await getDB();
+  const countersCollection = db.collection('counters');
+  
+  // Use findOneAndUpdate for atomic increment
+  const result = await countersCollection.findOneAndUpdate(
+    { _id: counterDocId },
+    { 
+      $setOnInsert: { value: startValue },
+      $inc: { value: 1 }
+    },
+    { 
+      upsert: true,
+      returnDocument: 'after'
     }
-    const newValue = current + 1;
-    transaction.set(counterRef, { value: newValue });
-    return `${prefix}${newValue}`;
-  });
+  );
+  
+  const newValue = result.value ? result.value.value : startValue;
+  return `${prefix}${newValue}`;
 };
 
 // Helper to fetch project member emails
 const fetchProjectMemberEmails = async (projectName) => {
   if (!projectName) return [];
   try {
-    const usersRef = db.collection('users');
-    const q = usersRef.where('project', 'array-contains', projectName);
-    const querySnapshot = await q.get();
-    return querySnapshot.docs.map(doc => doc.data().email).filter(Boolean);
+    const db = await getDB();
+    const usersCollection = db.collection('users');
+    const users = await usersCollection.find({ 
+      project: { $in: [projectName] } 
+    }).toArray();
+    return users.map(user => user.email).filter(Boolean);
   } catch (error) {
     console.error("Error fetching project member emails:", error);
     return [];
@@ -58,14 +67,17 @@ const fetchProjectMemberEmails = async (projectName) => {
 // GET /tickets/config/formConfig - Get form configuration
 router.get('/config/formConfig', verifyToken, async (req, res) => {
   try {
-    const configRef = db.collection('config').doc('formConfig');
-    const configSnap = await configRef.get();
+    const db = await getDB();
+    const configCollection = db.collection('config');
+    const config = await configCollection.findOne({ _id: 'formConfig' });
     
-    if (!configSnap.exists) {
+    if (!config) {
       return res.json({ success: true, formConfig: null });
     }
     
-    res.json({ success: true, formConfig: configSnap.data() });
+    // Remove _id from response
+    const { _id, ...formConfig } = config;
+    res.json({ success: true, formConfig });
   } catch (error) {
     console.error('Error fetching form config:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch form config' });
@@ -77,7 +89,8 @@ router.put('/config/formConfig', verifyToken, async (req, res) => {
   try {
     const { fields, moduleOptions, categoryOptions, subCategoryOptions } = req.body;
     
-    const configRef = db.collection('config').doc('formConfig');
+    const db = await getDB();
+    const configCollection = db.collection('config');
     
     const updateData = {};
     if (fields !== undefined) updateData.fields = fields;
@@ -85,12 +98,17 @@ router.put('/config/formConfig', verifyToken, async (req, res) => {
     if (categoryOptions !== undefined) updateData.categoryOptions = categoryOptions;
     if (subCategoryOptions !== undefined) updateData.subCategoryOptions = subCategoryOptions;
     
-    await configRef.set(updateData, { merge: true });
+    await configCollection.updateOne(
+      { _id: 'formConfig' },
+      { $set: updateData },
+      { upsert: true }
+    );
     
-    const updatedSnap = await configRef.get();
+    const updated = await configCollection.findOne({ _id: 'formConfig' });
+    const { _id, ...formConfig } = updated;
     res.json({
       success: true,
-      formConfig: updatedSnap.data()
+      formConfig
     });
   } catch (error) {
     console.error('Error updating form config:', error);
@@ -102,23 +120,30 @@ router.put('/config/formConfig', verifyToken, async (req, res) => {
 router.get('/users/current', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const userDocRef = db.collection('users').doc(userId);
-    const userDocSnap = await userDocRef.get();
+    const db = await getDB();
+    const usersCollection = db.collection('users');
     
-    if (!userDocSnap.exists) {
+    let user;
+    try {
+      user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+    } catch (err) {
+      // If ObjectId conversion fails, try as string
+      user = await usersCollection.findOne({ _id: userId });
+    }
+    
+    if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
     
-    const userData = userDocSnap.data();
     res.json({
       success: true,
       user: {
-        id: userId,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        project: userData.project || 'General',
-        role: userData.role
+        id: user._id.toString(),
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        project: user.project || 'General',
+        role: user.role
       }
     });
   } catch (error) {
@@ -135,16 +160,15 @@ router.get('/project-members', verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Project name is required' });
     }
     
-    const projectsRef = db.collection('projects');
-    const q = projectsRef.where('name', '==', projectName);
-    const projectSnapshot = await q.get();
+    const db = await getDB();
+    const projectsCollection = db.collection('projects');
+    const project = await projectsCollection.findOne({ name: projectName });
     
-    if (projectSnapshot.empty) {
+    if (!project) {
       return res.json({ success: true, members: [] });
     }
     
-    const projectDoc = projectSnapshot.docs[0];
-    const members = projectDoc.data().members || [];
+    const members = project.members || [];
     
     // Return all members (not just clients)
     res.json({ success: true, members });
@@ -158,16 +182,15 @@ router.get('/project-members', verifyToken, async (req, res) => {
 router.get('/projects/:projectName/members', verifyToken, async (req, res) => {
   try {
     const { projectName } = req.params;
-    const projectsRef = db.collection('projects');
-    const q = projectsRef.where('name', '==', projectName);
-    const projectSnapshot = await q.get();
+    const db = await getDB();
+    const projectsCollection = db.collection('projects');
+    const project = await projectsCollection.findOne({ name: projectName });
     
-    if (projectSnapshot.empty) {
+    if (!project) {
       return res.json({ success: true, members: [] });
     }
     
-    const projectDoc = projectSnapshot.docs[0];
-    const members = projectDoc.data().members || [];
+    const members = project.members || [];
     
     // Filter client-side members
     const clientMembers = members.filter(m => m.role === 'client' || m.role === 'client_head');
@@ -200,16 +223,15 @@ router.get('/check-duplicate', verifyToken, async (req, res) => {
       return res.json({ success: true, isDuplicate: false });
     }
     
-    const ticketsRef = db.collection('tickets');
-    const q = ticketsRef.where('email', '==', email);
-    const querySnapshot = await q.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
+    const tickets = await ticketsCollection.find({ email: email }).toArray();
     
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
-    const isDuplicate = querySnapshot.docs.some(doc => {
-      const data = doc.data();
-      const createdTime = data.created?.toDate ? data.created.toDate() : new Date(data.created);
-      return data.subject === subject && createdTime >= last24Hours;
+    const isDuplicate = tickets.some(ticket => {
+      const createdTime = ticket.created instanceof Date ? ticket.created : new Date(ticket.created);
+      return ticket.subject === subject && createdTime >= last24Hours;
     });
     
     res.json({ success: true, isDuplicate });
@@ -248,18 +270,20 @@ router.post('/', verifyToken, async (req, res) => {
     // Get next ticket number
     const ticketNumber = await getNextTicketNumber(typeOfIssue);
     
+    const db = await getDB();
+    
     // Fetch projectId by project name
     let projectId = null;
     if (project) {
-      const projectsRef = db.collection('projects');
-      const q = projectsRef.where('name', '==', project);
-      const projectSnapshot = await q.get();
-      if (!projectSnapshot.empty) {
-        projectId = projectSnapshot.docs[0].id;
+      const projectsCollection = db.collection('projects');
+      const projectDoc = await projectsCollection.findOne({ name: project });
+      if (projectDoc) {
+        projectId = projectDoc._id.toString();
       }
     }
     
     // Build ticket data
+    const now = new Date();
     const ticketData = {
       subject,
       customer,
@@ -273,20 +297,25 @@ router.post('/', verifyToken, async (req, res) => {
       priority: priority || 'Medium',
       description,
       status: 'Open',
-      created: admin.firestore.FieldValue.serverTimestamp(),
+      created: now,
       starred: false,
       attachments: attachments || [],
       ticketNumber,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdated: now,
       userId: req.user.id,
       reportedBy: reportedBy || ''
     };
     
     // Create ticket
-    const docRef = await db.collection('tickets').add(ticketData);
+    const ticketsCollection = db.collection('tickets');
+    const result = await ticketsCollection.insertOne(ticketData);
+    const ticketId = result.insertedId.toString();
     
-    // Update ticket with its Firestore doc ID
-    await docRef.update({ ticketId: docRef.id });
+    // Update ticket with its MongoDB doc ID
+    await ticketsCollection.updateOne(
+      { _id: result.insertedId },
+      { $set: { ticketId: ticketId } }
+    );
     
     // Fetch project members' emails for notification
     const projectName = Array.isArray(project) ? project[0] : project;
@@ -295,9 +324,10 @@ router.post('/', verifyToken, async (req, res) => {
     res.json({
       success: true,
       ticket: {
-        id: docRef.id,
+        id: ticketId,
         ticketNumber,
-        ...ticketData
+        ...ticketData,
+        ticketId
       },
       memberEmails // Return for frontend to send email
     });
@@ -314,17 +344,31 @@ router.post('/', verifyToken, async (req, res) => {
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      // If ObjectId conversion fails, try as string or by ticketId
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
       });
     }
     
-    const ticketData = { id: ticketSnap.id, ...ticketSnap.data() };
+    const ticketData = { id: ticket._id.toString(), ...ticket };
+    delete ticketData._id;
     
     // Merge old responses for display if comments array is missing
     let comments = [];
@@ -342,8 +386,8 @@ router.get('/:id', verifyToken, async (req, res) => {
     
     // Sort comments by timestamp
     comments.sort((a, b) => {
-      const ta = a.timestamp?.seconds ? a.timestamp.seconds : (a.timestamp?._seconds || new Date(a.timestamp).getTime()/1000 || 0);
-      const tb = b.timestamp?.seconds ? b.timestamp.seconds : (b.timestamp?._seconds || new Date(b.timestamp).getTime()/1000 || 0);
+      const ta = a.timestamp instanceof Date ? a.timestamp.getTime() : (new Date(a.timestamp || 0).getTime());
+      const tb = b.timestamp instanceof Date ? b.timestamp.getTime() : (new Date(b.timestamp || 0).getTime());
       return ta - tb;
     });
     
@@ -366,29 +410,44 @@ router.put('/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
       });
     }
     
-    const ticketData = ticketSnap.data();
-    
     // Handle timestamp fields
     if (updates.lastUpdated !== undefined) {
-      updates.lastUpdated = admin.firestore.FieldValue.serverTimestamp();
+      updates.lastUpdated = new Date();
     }
     
+    // Remove _id from updates if present
+    delete updates._id;
+    
     // Update ticket
-    await ticketRef.update(updates);
+    const filter = { _id: ticket._id };
+    await ticketsCollection.updateOne(filter, { $set: updates });
     
     // Fetch updated ticket
-    const updatedSnap = await ticketRef.get();
-    const updatedData = { id: updatedSnap.id, ...updatedSnap.data() };
+    const updated = await ticketsCollection.findOne(filter);
+    const updatedData = { id: updated._id.toString(), ...updated };
+    delete updatedData._id;
     
     res.json({
       success: true,
@@ -416,10 +475,22 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
       });
     }
     
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
@@ -429,24 +500,28 @@ router.post('/:id/comments', verifyToken, async (req, res) => {
     const newComment = {
       message,
       attachments: attachments || [],
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      timestamp: new Date(),
       authorEmail: authorEmail || req.user.email,
       authorName: authorName || '',
       authorRole: authorRole || 'employee'
     };
     
     // Get current comments array
-    const ticketData = ticketSnap.data();
-    const comments = ticketData.comments || [];
+    const comments = ticket.comments || [];
     
     // Add new comment
     comments.push(newComment);
     
     // Update ticket
-    await ticketRef.update({
-      comments,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await ticketsCollection.updateOne(
+      { _id: ticket._id },
+      { 
+        $set: { 
+          comments,
+          lastUpdated: new Date()
+        }
+      }
+    );
     
     res.json({
       success: true,
@@ -475,18 +550,29 @@ router.put('/:id/comments/:index', verifyToken, async (req, res) => {
       });
     }
     
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
       });
     }
     
-    const ticketData = ticketSnap.data();
-    const comments = ticketData.comments || [];
+    const comments = ticket.comments || [];
     
     if (commentIndex < 0 || commentIndex >= comments.length) {
       return res.status(400).json({
@@ -499,15 +585,20 @@ router.put('/:id/comments/:index', verifyToken, async (req, res) => {
     comments[commentIndex] = {
       ...comments[commentIndex],
       message,
-      lastEditedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastEditedAt: new Date(),
       lastEditedBy: req.user.email
     };
     
     // Update ticket
-    await ticketRef.update({
-      comments,
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await ticketsCollection.updateOne(
+      { _id: ticket._id },
+      { 
+        $set: { 
+          comments,
+          lastUpdated: new Date()
+        }
+      }
+    );
     
     res.json({
       success: true,
@@ -526,63 +617,81 @@ router.put('/:id/comments/:index', verifyToken, async (req, res) => {
 router.get('/:id/employees', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
       });
     }
     
-    const ticketData = ticketSnap.data();
-    const project = ticketData.project;
+    const project = ticket.project;
     
     if (!project) {
       return res.json({ success: true, employees: [] });
     }
     
-    const usersRef = db.collection('users');
+    const usersCollection = db.collection('users');
     let employees = [];
     
     if (Array.isArray(project)) {
-      const q = usersRef.where('project', 'array-contains-any', project).where('role', 'in', ['employee', 'project_manager']);
-      const snapshot = await q.get();
-      employees = snapshot.docs.map(doc => {
-        const data = doc.data();
+      const users = await usersCollection.find({
+        project: { $in: project },
+        role: { $in: ['employee', 'project_manager'] }
+      }).toArray();
+      
+      employees = users.map(user => {
         let name = '';
-        if (data.firstName && data.lastName) {
-          name = `${data.firstName} ${data.lastName}`.trim();
-        } else if (data.firstName) {
-          name = data.firstName;
-        } else if (data.lastName) {
-          name = data.lastName;
+        if (user.firstName && user.lastName) {
+          name = `${user.firstName} ${user.lastName}`.trim();
+        } else if (user.firstName) {
+          name = user.firstName;
+        } else if (user.lastName) {
+          name = user.lastName;
         } else {
-          name = data.email.split('@')[0];
+          name = user.email.split('@')[0];
         }
-        if (data.role === 'project_manager') {
+        if (user.role === 'project_manager') {
           name += ' (Project Manager)';
         }
         return {
-          id: doc.id,
-          email: data.email,
+          id: user._id.toString(),
+          email: user.email,
           name,
-          role: data.role
+          role: user.role
         };
       });
     } else {
-      const q1 = usersRef.where('project', '==', project).where('role', 'in', ['employee', 'project_manager']);
-      const q2 = usersRef.where('project', 'array-contains', project).where('role', 'in', ['employee', 'project_manager']);
-      const [snap1, snap2] = await Promise.all([q1.get(), q2.get()]);
-      const emps1 = snap1.docs.map(doc => doc.data());
-      const emps2 = snap2.docs.map(doc => doc.data());
-      const allEmps = [...emps1, ...emps2].filter((v, i, a) => a.findIndex(t => t.email === v.email) === i);
-      employees = allEmps.map(data => ({
-        id: data.id,
-        email: data.email,
-        name: data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : (data.firstName || data.lastName || data.email.split('@')[0]),
-        role: data.role
+      const users = await usersCollection.find({
+        $or: [
+          { project: project },
+          { project: { $in: [project] } }
+        ],
+        role: { $in: ['employee', 'project_manager'] }
+      }).toArray();
+      
+      // Deduplicate by email
+      const uniqueUsers = users.filter((v, i, a) => a.findIndex(t => t.email === v.email) === i);
+      
+      employees = uniqueUsers.map(user => ({
+        id: user._id.toString(),
+        email: user.email,
+        name: user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : (user.firstName || user.lastName || user.email.split('@')[0]),
+        role: user.role
       }));
     }
     
@@ -600,42 +709,61 @@ router.get('/:id/employees', verifyToken, async (req, res) => {
 router.get('/:id/clients', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const ticketRef = db.collection('tickets').doc(id);
-    const ticketSnap = await ticketRef.get();
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
     
-    if (!ticketSnap.exists) {
+    let ticket;
+    try {
+      ticket = await ticketsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      ticket = await ticketsCollection.findOne({ 
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+    
+    if (!ticket) {
       return res.status(404).json({
         success: false,
         error: 'Ticket not found'
       });
     }
     
-    const ticketData = ticketSnap.data();
-    const project = ticketData.project;
+    const project = ticket.project;
     
     if (!project) {
       return res.json({ success: true, clients: [] });
     }
     
-    const usersRef = db.collection('users');
-    const q = usersRef.where('project', '==', project).where('role', '==', 'client');
-    const snapshot = await q.get();
+    const usersCollection = db.collection('users');
+    const projectFilter = Array.isArray(project) 
+      ? { project: { $in: project }, role: 'client' }
+      : { 
+          $or: [
+            { project: project },
+            { project: { $in: [project] } }
+          ],
+          role: 'client'
+        };
     
-    const clients = snapshot.docs.map(doc => {
-      const data = doc.data();
+    const users = await usersCollection.find(projectFilter).toArray();
+    
+    const clients = users.map(user => {
       let name = '';
-      if (data.firstName && data.lastName) {
-        name = `${data.firstName} ${data.lastName}`.trim();
-      } else if (data.firstName) {
-        name = data.firstName;
-      } else if (data.lastName) {
-        name = data.lastName;
+      if (user.firstName && user.lastName) {
+        name = `${user.firstName} ${user.lastName}`.trim();
+      } else if (user.firstName) {
+        name = user.firstName;
+      } else if (user.lastName) {
+        name = user.lastName;
       } else {
-        name = data.email.split('@')[0];
+        name = user.email.split('@')[0];
       }
       return {
-        id: doc.id,
-        email: data.email,
+        id: user._id.toString(),
+        email: user.email,
         name,
       };
     });

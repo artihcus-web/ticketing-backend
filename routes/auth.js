@@ -1,16 +1,13 @@
 import express from 'express';
-import admin from 'firebase-admin';
-import { db, auth } from '../config/firebase.js';
+import bcrypt from 'bcrypt';
+import { getDB } from '../config/mongodb.js';
 import { generateToken, verifyToken } from '../middleware/auth.js';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 dotenv.config();
 
 const router = express.Router();
-
-// Firebase Auth REST API endpoint
-const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyA5atsWG-tRpSJLMHSqiVUG5let0sb87Uo';
 
 // POST /auth/login
 router.post('/login', async (req, res) => {
@@ -24,160 +21,89 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    let userData; // Data from the Firestore user document found by email
-    let userDocId;
-    let userDocRefByEmail; // Reference to the document found by email
+    const db = await getDB();
+    const usersCollection = db.collection('users');
 
-    // 1. Check for existing user in Firestore by email
-    let userSnapshot;
-    try {
-      const usersQuery = db.collection('users').where('email', '==', email);
-      userSnapshot = await usersQuery.get();
-    } catch (firestoreError) {
-      console.error('Firestore query error:', firestoreError);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Database connection error. Please check Firebase Admin SDK configuration.' 
-      });
-    }
+    // 1. Find user by email
+    const user = await usersCollection.findOne({ email: email.toLowerCase() });
 
-    if (userSnapshot.empty) {
+    if (!user) {
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid email or password' 
       });
     }
 
-    userData = userSnapshot.docs[0].data();
-    userDocId = userSnapshot.docs[0].id;
-    userDocRefByEmail = userSnapshot.docs[0].ref;
-
-    // Check if user already has an auth account
-    let signInMethods = [];
-    try {
-      const userRecord = await auth.getUserByEmail(email);
-      signInMethods = userRecord.providerData.map(p => p.providerId);
-    } catch (error) {
-      // User doesn't exist in Auth yet - this is okay
-      if (error.code !== 'auth/user-not-found') {
-        console.error('Error checking Auth user:', error);
-      }
-      signInMethods = [];
-    }
-
-    if (userData.status === 'pending' && userData.password && signInMethods.length === 0) {
-      // Only create auth account if user doesn't already have one
-      try {
-        // Use the temporary password to create the Firebase Auth account
-        await auth.createUser({
-          email: email,
-          password: userData.password,
-          emailVerified: false,
-        });
-      } catch (authError) {
-        if (authError.code === 'auth/email-already-in-use') {
-          console.log('Auth account already exists, proceeding to sign in');
-        } else {
-          console.error('Error creating Auth account for pending user:', authError);
-          return res.status(500).json({ 
-            success: false, 
-            error: 'Failed to activate account. Please try again.' 
-          });
-        }
-      }
-    }
-
-    // 2. Verify password and sign in the user using Firebase Auth REST API
-    let userRecord;
-    let idToken;
-    try {
-      // Verify password using Firebase Auth REST API
-      const response = await fetch(`${FIREBASE_AUTH_URL}?key=${FIREBASE_API_KEY}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: email,
-          password: password,
-          returnSecureToken: true
-        })
-      });
-
-      const authData = await response.json();
-
-      if (!response.ok) {
-        if (authData.error?.message?.includes('INVALID_PASSWORD') || 
-            authData.error?.message?.includes('EMAIL_NOT_FOUND') ||
-            authData.error?.message?.includes('INVALID_LOGIN_CREDENTIALS')) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'Invalid email or password' 
-          });
-        }
-        throw new Error(authData.error?.message || 'Authentication failed');
-      }
-
-      idToken = authData.idToken;
-      userRecord = await auth.verifyIdToken(idToken);
-    } catch (error) {
-      console.error('Password verification error:', error);
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
-
-    const actualUid = userRecord.uid; // Get the actual Firebase Auth UID
-
-    // 3. Handle UID migration/synchronization if the Firestore document ID is temporary
-    if (userDocId !== actualUid) {
-      console.log(`UID mismatch: Firestore ID (${userDocId}) vs Auth UID (${actualUid}). Migrating document.`);
-      // Create a new document with the actual Firebase Auth UID
-      const newUserDocRef = db.collection('users').doc(actualUid);
-      // Copy all data from the old document, add status: 'active', and remove password
-      const updatedUserData = { ...userData, status: 'active' };
-      delete updatedUserData.password; // Ensure temporary password is not copied
-      await newUserDocRef.set(updatedUserData);
-      console.log('New user document created with actual UID.', newUserDocRef.id);
-      // Delete the old temporary document
-      await userDocRefByEmail.delete();
-      console.log('Old temporary user document deleted.', userDocRefByEmail.id);
-      // Update userData and userDocId to point to the new, correct document for subsequent operations
-      userData = updatedUserData;
-      userDocId = actualUid;
-    } else if (userData.status === 'pending') {
-      // If UIDs match but status is still pending, update existing document
-      console.log('UIDs match, but status pending. Updating existing document.');
-      await userDocRefByEmail.update({
-        status: 'active',
-        password: admin.firestore.FieldValue.delete() // Remove the temporary password field
-      });
-      userData.status = 'active';
-      delete userData.password;
-    }
-
-    // 4. After migration or if not pending, check by UID. If the document exists and is not disabled, allow login. If not, block login and show error.
-    const userDocRef = db.collection('users').doc(actualUid);
-    const userDocSnap = await userDocRef.get();
-    if (!userDocSnap.exists) {  // In Admin SDK, exists is a property, not a method
-      console.log('Login: Blocked login - user document does not exist for UID:', actualUid, email);
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Your account has been deleted by the admin.' 
-      });
-    }
-    const latestUserData = userDocSnap.data();
-    if (latestUserData.status === 'disabled') {
-      console.log('Login: Blocked login - user is disabled for UID:', actualUid, email);
+    // 2. Check if user account is disabled or deleted
+    if (user.status === 'disabled') {
       return res.status(403).json({ 
         success: false, 
         error: 'Your account has been disabled by the admin.' 
       });
     }
 
-    // Determine redirect path based on role
-    const role = userData.role?.toLowerCase();
+    if (user.status === 'deleted') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Your account has been deleted by the admin.' 
+      });
+    }
+
+    // 3. Handle pending users - hash password if it's plain text
+    if (user.status === 'pending' && user.password && !user.password.startsWith('$2')) {
+      // Password is plain text, hash it
+      const hashedPassword = await bcrypt.hash(user.password, 10);
+      await usersCollection.updateOne(
+        { _id: user._id },
+        { 
+          $set: { 
+            password: hashedPassword,
+            status: 'active'
+          }
+        }
+      );
+      user.password = hashedPassword;
+      user.status = 'active';
+    }
+
+    // 4. Verify password
+    let passwordValid = false;
+    
+    // Check if password is hashed (starts with $2a$, $2b$, or $2y$)
+    if (user.password && user.password.startsWith('$2')) {
+      // Password is hashed, use bcrypt compare
+      passwordValid = await bcrypt.compare(password, user.password);
+    } else if (user.password) {
+      // Password is plain text (legacy), compare directly
+      passwordValid = user.password === password;
+      // If valid, hash it for future use
+      if (passwordValid) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { password: hashedPassword } }
+        );
+      }
+    }
+
+    if (!passwordValid) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid email or password' 
+      });
+    }
+
+    // 5. Update status to active if it was pending
+    if (user.status === 'pending') {
+      await usersCollection.updateOne(
+        { _id: user._id },
+        { $set: { status: 'active' } }
+      );
+      user.status = 'active';
+    }
+
+    // 6. Determine redirect path based on role
+    const role = user.role?.toLowerCase();
     let redirectPath = '/access-denied';
     switch (role) {
       case 'admin':
@@ -197,48 +123,33 @@ router.post('/login', async (req, res) => {
         break;
     }
 
-    // Generate JWT token for client-side authentication
+    // 7. Generate JWT token
     const token = generateToken({
-      id: userDocId,
-      email: userData.email,
-      role: userData.role,
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
     });
 
-    // Return success response with user data and JWT token
+    // 8. Return success response
     res.json({
       success: true,
-      token, // JWT token for API authentication
+      token,
       user: {
-        id: userDocId,
-        role: userData.role,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        empId: userData.empId,
-        clientId: userData.clientId,
-        project: userData.project || null,
-        email: userData.email
+        id: user._id.toString(),
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        empId: user.empId,
+        clientId: user.clientId,
+        project: user.project || null,
+        email: user.email
       },
       redirectPath
     });
 
-    } catch (err) {
+  } catch (err) {
     console.error("Login error:", err);
     console.error("Error stack:", err.stack);
-    
-    // Check for specific Firebase Admin errors
-    if (err.message?.includes('credential') || err.message?.includes('permission denied')) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Firebase Admin SDK configuration error. Please set up service account credentials.' 
-      });
-    }
-    
-    if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid email or password' 
-      });
-    }
     
     return res.status(500).json({ 
       success: false, 
@@ -259,130 +170,113 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    // First check if the email exists in Firebase Auth
-    let signInMethods = [];
-    let userRecord = null;
-    try {
-      userRecord = await auth.getUserByEmail(email);
-      signInMethods = userRecord.providerData.map(p => p.providerId);
-    } catch (error) {
-      // User doesn't exist in Auth
-      signInMethods = [];
-    }
+    const db = await getDB();
+    const usersCollection = db.collection('users');
 
-    if (signInMethods.length === 0) {
-      // If not in Auth, check Firestore
-      const usersQuery = db.collection('users').where('email', '==', email);
-      const userSnapshot = await usersQuery.get();
+    // Check if user exists
+    const user = await usersCollection.findOne({ email: email.toLowerCase() });
 
-      if (userSnapshot.empty) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'No account found with this email address' 
-        });
-      }
-
-      // If user exists in Firestore but not in Auth, we need to create their Auth account first
-      const userData = userSnapshot.docs[0].data();
-      const userDocRef = userSnapshot.docs[0].ref;
-
-      // Generate a temporary password if one doesn't exist
-      const tempPassword = userData.password || Math.random().toString(36).slice(-8);
-
-      try {
-        // Create the Firebase Auth account using the temporary password
-        await auth.createUser({
-          email: email,
-          password: tempPassword,
-          emailVerified: false,
-        });
-
-        // Update the user's status in Firestore
-        await userDocRef.update({
-          status: 'active',
-          password: tempPassword // Keep the password temporarily
-        });
-
-        // Now send the password reset email
-        try {
-          const resetLink = await auth.generatePasswordResetLink(email, {
-            url: process.env.FRONTEND_URL || 'http://localhost:5173/',
-            handleCodeInApp: true
-          });
-          
-          // In production, you would send this link via email service
-          // For now, we'll return it (or integrate with your email service)
-          return res.json({
-            success: true,
-            message: 'Password reset link has been sent to your email. Please check your inbox.',
-            resetLink // Remove this in production, only for testing
-          });
-        } catch (resetError) {
-          throw resetError;
-        }
-      } catch (authError) {
-        if (authError.code === 'auth/email-already-in-use') {
-          // If the account was created in the meantime, try sending reset email
-          try {
-            const resetLink = await auth.generatePasswordResetLink(email, {
-              url: process.env.FRONTEND_URL || 'http://localhost:5173/',
-              handleCodeInApp: true
-            });
-            
-            return res.json({
-              success: true,
-              message: 'Password reset link has been sent to your email. Please check your inbox.',
-              resetLink // Remove this in production
-            });
-          } catch (resetError) {
-            throw resetError;
-          }
-        }
-        throw authError;
-      }
-    }
-
-    // If we get here, the email exists in Auth, so we can send the reset email
-    try {
-      const resetLink = await auth.generatePasswordResetLink(email, {
-        url: process.env.FRONTEND_URL || 'http://localhost:5173/',
-        handleCodeInApp: true
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'No account found with this email address' 
       });
-      
-      return res.json({
-        success: true,
-        message: 'Password reset link has been sent to your email. Please check your inbox.',
-        resetLink // Remove this in production
-      });
-    } catch (resetError) {
-      throw resetError;
     }
+
+    // Generate password reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+
+    // Store reset token in user document
+    await usersCollection.updateOne(
+      { _id: user._id },
+      { 
+        $set: { 
+          resetToken: resetToken,
+          resetTokenExpiry: resetTokenExpiry
+        }
+      }
+    );
+
+    // In production, send email with reset link
+    // For now, return success message
+    // TODO: Integrate with email service to send reset link
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+    
+    return res.json({
+      success: true,
+      message: 'Password reset link has been sent to your email. Please check your inbox.',
+      resetLink // Remove this in production, only for testing
+    });
 
   } catch (err) {
     console.error("Forgot password error:", err);
-    let errorMessage = `Failed to send reset link: ${err.message}`;
-    
-    switch (err.code) {
-      case 'auth/invalid-email':
-        errorMessage = 'Invalid email address format';
-        break;
-      case 'auth/user-not-found':
-        errorMessage = 'No account found with this email address';
-        break;
-      case 'auth/too-many-requests':
-        errorMessage = 'Too many attempts. Please try again later';
-        break;
-      case 'auth/network-request-failed':
-        errorMessage = 'Network error. Please check your internet connection';
-        break;
-      case 'auth/email-already-in-use':
-        errorMessage = 'Account already exists. Please try logging in.';
-        break;
-    }
     
     return res.status(500).json({ 
       success: false, 
-      error: errorMessage 
+      error: err.message || 'Failed to send reset link. Please try again.' 
+    });
+  }
+});
+
+// POST /auth/reset-password - Reset password with token
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Token and new password are required' 
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Password must be at least 6 characters long' 
+      });
+    }
+
+    const db = await getDB();
+    const usersCollection = db.collection('users');
+
+    // Find user by reset token
+    const user = await usersCollection.findOne({ 
+      resetToken: token,
+      resetTokenExpiry: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid or expired reset token' 
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password and clear reset token
+    await usersCollection.updateOne(
+      { _id: user._id },
+      { 
+        $set: { password: hashedPassword },
+        $unset: { resetToken: '', resetTokenExpiry: '' }
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Password has been reset successfully. You can now login with your new password.'
+    });
+
+  } catch (err) {
+    console.error("Reset password error:", err);
+    
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message || 'Failed to reset password. Please try again.' 
     });
   }
 });
@@ -392,21 +286,20 @@ router.get('/verify', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Get user data from Firestore
-    const userDocRef = db.collection('users').doc(userId);
-    const userDocSnap = await userDocRef.get();
+    const db = await getDB();
+    const usersCollection = db.collection('users');
     
-    if (!userDocSnap.exists) {
+    const user = await usersCollection.findOne({ _id: userId });
+    
+    if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
     
-    const userData = userDocSnap.data();
-    
     // Check if user is disabled
-    if (userData.status === 'disabled') {
+    if (user.status === 'disabled') {
       return res.status(403).json({
         success: false,
         error: 'Your account has been disabled by the admin.'
@@ -416,14 +309,14 @@ router.get('/verify', verifyToken, async (req, res) => {
     res.json({
       success: true,
       user: {
-        id: userId,
-        role: userData.role,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        empId: userData.empId,
-        clientId: userData.clientId,
-        project: userData.project || null,
-        email: userData.email
+        id: user._id.toString(),
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        empId: user.empId,
+        clientId: user.clientId,
+        project: user.project || null,
+        email: user.email
       }
     });
   } catch (error) {
@@ -440,30 +333,30 @@ router.get('/user', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    const userDocRef = db.collection('users').doc(userId);
-    const userDocSnap = await userDocRef.get();
+    const db = await getDB();
+    const usersCollection = db.collection('users');
     
-    if (!userDocSnap.exists) {
+    const user = await usersCollection.findOne({ _id: userId });
+    
+    if (!user) {
       return res.status(404).json({
         success: false,
         error: 'User not found'
       });
     }
     
-    const userData = userDocSnap.data();
-    
     res.json({
       success: true,
       user: {
-        id: userId,
-        role: userData.role,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        empId: userData.empId,
-        clientId: userData.clientId,
-        project: userData.project || null,
-        email: userData.email,
-        status: userData.status
+        id: user._id.toString(),
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        empId: user.empId,
+        clientId: user.clientId,
+        project: user.project || null,
+        email: user.email,
+        status: user.status
       }
     });
   } catch (error) {
@@ -476,4 +369,3 @@ router.get('/user', verifyToken, async (req, res) => {
 });
 
 export default router;
-
