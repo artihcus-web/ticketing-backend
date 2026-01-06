@@ -31,20 +31,27 @@ const getNextTicketNumber = async (typeOfIssue) => {
   const db = await getDB();
   const countersCollection = db.collection('counters');
   
-  // Use findOneAndUpdate for atomic increment
-  const result = await countersCollection.findOneAndUpdate(
-    { _id: counterDocId },
-    { 
-      $setOnInsert: { value: startValue },
-      $inc: { value: 1 }
-    },
-    { 
-      upsert: true,
-      returnDocument: 'after'
-    }
-  );
+  // Check if counter exists
+  const existingCounter = await countersCollection.findOne({ _id: counterDocId });
   
-  const newValue = result.value ? result.value.value : startValue;
+  let newValue;
+  if (!existingCounter) {
+    // Create new counter with startValue + 1
+    newValue = startValue + 1;
+    await countersCollection.insertOne({
+      _id: counterDocId,
+      value: newValue
+    });
+  } else {
+    // Increment existing counter
+    const result = await countersCollection.findOneAndUpdate(
+      { _id: counterDocId },
+      { $inc: { value: 1 } },
+      { returnDocument: 'after' }
+    );
+    newValue = result.value ? result.value.value : (existingCounter.value + 1);
+  }
+  
   return `${prefix}${newValue}`;
 };
 
