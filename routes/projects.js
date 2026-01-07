@@ -23,6 +23,44 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
+// GET /projects/:id - Get a single project by ID
+router.get('/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getDB();
+    const projectsCollection = db.collection('projects');
+    
+    let project;
+    try {
+      project = await projectsCollection.findOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      project = await projectsCollection.findOne({ _id: id });
+    }
+    
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      project: {
+        id: project._id.toString(),
+        ...project,
+        _id: undefined
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch project'
+    });
+  }
+});
+
 // POST /projects - Create a new project
 router.post('/', verifyToken, async (req, res) => {
   try {
