@@ -27,17 +27,31 @@ router.get('/', verifyToken, async (req, res) => {
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
+    console.log('[DEBUG] Fetching project with ID:', id);
     const db = await getDB();
     const projectsCollection = db.collection('projects');
     
     let project;
     try {
-      project = await projectsCollection.findOne({ _id: new ObjectId(id) });
+      const objectId = new ObjectId(id);
+      console.log('[DEBUG] Trying ObjectId query:', objectId);
+      project = await projectsCollection.findOne({ _id: objectId });
+      if (project) {
+        console.log('[DEBUG] Project found with ObjectId');
+      }
     } catch (err) {
+      console.log('[DEBUG] ObjectId conversion failed, trying string:', err.message);
       project = await projectsCollection.findOne({ _id: id });
+      if (project) {
+        console.log('[DEBUG] Project found with string ID');
+      }
     }
     
     if (!project) {
+      console.log('[DEBUG] Project not found. Searched with ID:', id);
+      // Also try to list all projects to see what IDs exist
+      const allProjects = await projectsCollection.find({}).toArray();
+      console.log('[DEBUG] Available project IDs:', allProjects.map(p => p._id.toString()));
       return res.status(404).json({
         success: false,
         error: 'Project not found'
