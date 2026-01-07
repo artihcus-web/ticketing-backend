@@ -13,6 +13,9 @@ const router = express.Router();
 // POST /auth/login
 router.post('/login', async (req, res) => {
   try {
+    console.log('📥 Login request received');
+    console.log('Request body:', { email: req.body?.email, hasPassword: !!req.body?.password });
+    
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -22,11 +25,15 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    console.log('🔍 Connecting to MongoDB...');
     const db = await getDB();
+    console.log('✅ MongoDB connection obtained');
     const usersCollection = db.collection('users');
 
     // 1. Find user by email
+    console.log('🔍 Searching for user:', email.toLowerCase());
     const user = await usersCollection.findOne({ email: email.toLowerCase() });
+    console.log('👤 User found:', user ? 'Yes' : 'No');
 
     if (!user) {
       return res.status(401).json({ 
@@ -132,6 +139,7 @@ router.post('/login', async (req, res) => {
     });
 
     // 8. Return success response
+    console.log('✅ Login successful for:', email);
     res.json({
       success: true,
       token,

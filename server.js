@@ -37,6 +37,28 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend is running' });
 });
 
+// Global error handler for unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Promise Rejection:', err);
+  console.error('Stack:', err.stack);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  console.error('Stack:', err.stack);
+  process.exit(1);
+});
+
+// Error handling middleware (should be last)
+app.use((err, req, res, next) => {
+  console.error('❌ Express Error:', err);
+  console.error('Stack:', err.stack);
+  res.status(500).json({
+    success: false,
+    error: err.message || 'Internal server error'
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
