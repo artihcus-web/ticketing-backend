@@ -273,7 +273,7 @@ router.post('/', verifyToken, async (req, res) => {
       attachments,
       reportedBy
     } = req.body;
-    
+
     // Validate required fields
     if (!subject || !email || !description) {
       return res.status(400).json({
@@ -281,12 +281,9 @@ router.post('/', verifyToken, async (req, res) => {
         error: 'Subject, email, and description are required'
       });
     }
-    
-    // Get next ticket number
-    const ticketNumber = await getNextTicketNumber(typeOfIssue);
-    
+
     const db = await getDB();
-    
+
     // Fetch projectId by project name
     let projectId = null;
     if (project) {
@@ -296,10 +293,10 @@ router.post('/', verifyToken, async (req, res) => {
         projectId = projectDoc._id.toString();
       }
     }
-    
-    // Build ticket data
+
+    // Base ticket data (without ticketNumber yet)
     const now = new Date();
-    const ticketData = {
+    const baseTicketData = {
       subject,
       customer,
       email,
@@ -315,36 +312,70 @@ router.post('/', verifyToken, async (req, res) => {
       created: now,
       starred: false,
       attachments: attachments || [],
-      ticketNumber,
       lastUpdated: now,
       userId: req.user.id,
       reportedBy: reportedBy || ''
     };
-    
-    // Create ticket
+
     const ticketsCollection = db.collection('tickets');
-    const result = await ticketsCollection.insertOne(ticketData);
-    const ticketId = result.insertedId.toString();
-    
-    // Update ticket with its MongoDB doc ID
-    await ticketsCollection.updateOne(
-      { _id: result.insertedId },
-      { $set: { ticketId: ticketId } }
-    );
-    
-    // Fetch project members' emails for notification
-    const projectName = Array.isArray(project) ? project[0] : project;
-    const memberEmails = await fetchProjectMemberEmails(projectName);
-    
-    res.json({
-      success: true,
-      ticket: {
-        id: ticketId,
-        ticketNumber,
-        ...ticketData,
-        ticketId
-      },
-      memberEmails // Return for frontend to send email
+
+    // Try a few times in case of rare duplicate ticketNumber collisions
+    const maxAttempts = 3;
+    let lastError = null;
+    let ticketId = null;
+    let finalTicketData = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Get next ticket number for this attempt
+      const ticketNumber = await getNextTicketNumber(typeOfIssue);
+      const ticketData = { ...baseTicketData, ticketNumber };
+
+      try {
+        const result = await ticketsCollection.insertOne(ticketData);
+        ticketId = result.insertedId.toString();
+        finalTicketData = ticketData;
+
+        // Update ticket with its MongoDB doc ID
+        await ticketsCollection.updateOne(
+          { _id: result.insertedId },
+          { $set: { ticketId } }
+        );
+
+        // Fetch project members' emails for notification
+        const projectName = Array.isArray(project) ? project[0] : project;
+        const memberEmails = await fetchProjectMemberEmails(projectName);
+
+        return res.json({
+          success: true,
+          ticket: {
+            id: ticketId,
+            ticketNumber,
+            ...finalTicketData,
+            ticketId
+          },
+          memberEmails // Return for frontend to send email
+        });
+      } catch (err) {
+        // If we hit a duplicate ticketNumber, retry with a new number
+        if (err && err.code === 11000 && err.keyPattern && err.keyPattern.ticketNumber) {
+          console.warn(
+            `Duplicate ticketNumber ${ticketNumber} detected on attempt ${attempt + 1}, retrying with a new number...`
+          );
+          lastError = err;
+          continue;
+        }
+
+        // Any other error: rethrow
+        lastError = err;
+        break;
+      }
+    }
+
+    // If we got here, all attempts failed
+    console.error('Error creating ticket after retries:', lastError);
+    return res.status(500).json({
+      success: false,
+      error: lastError?.message || 'Failed to create ticket'
     });
   } catch (error) {
     console.error('Error creating ticket:', error);
