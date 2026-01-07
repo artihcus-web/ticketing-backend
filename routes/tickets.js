@@ -43,13 +43,13 @@ const getNextTicketNumber = async (typeOfIssue) => {
       value: newValue
     });
   } else {
-    // Increment existing counter
-    const result = await countersCollection.findOneAndUpdate(
+    // Safely increment existing counter without conflicting update paths
+    const currentValue = Number(existingCounter.value) || startValue;
+    newValue = currentValue + 1;
+    await countersCollection.updateOne(
       { _id: counterDocId },
-      { $inc: { value: 1 } },
-      { returnDocument: 'after' }
+      { $set: { value: newValue } }
     );
-    newValue = result.value ? result.value.value : (existingCounter.value + 1);
   }
   
   return `${prefix}${newValue}`;
