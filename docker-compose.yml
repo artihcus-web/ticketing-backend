@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    image: ${DOCKERHUB_USERNAME:-artihcus}/articket-backend:latest
+    image: ganesh/ticketing-backend:latest
     container_name: articket-backend
     ports:
       - "${PORT:-5000}:5000"
