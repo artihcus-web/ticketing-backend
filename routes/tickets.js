@@ -28,31 +28,39 @@ const getNextTicketNumber = async (typeOfIssue) => {
     startValue = 100000;
   }
   
-  const db = await getDB();
-  const countersCollection = db.collection('counters');
-  
-  // Check if counter exists
-  const existingCounter = await countersCollection.findOne({ _id: counterDocId });
-  
-  let newValue;
-  if (!existingCounter) {
-    // Create new counter with startValue + 1
-    newValue = startValue + 1;
-    await countersCollection.insertOne({
-      _id: counterDocId,
-      value: newValue
-    });
-  } else {
-    // Safely increment existing counter without conflicting update paths
-    const currentValue = Number(existingCounter.value) || startValue;
-    newValue = currentValue + 1;
-    await countersCollection.updateOne(
-      { _id: counterDocId },
-      { $set: { value: newValue } }
-    );
+  try {
+    const db = await getDB();
+    const countersCollection = db.collection('counters');
+    
+    // Check if counter exists
+    const existingCounter = await countersCollection.findOne({ _id: counterDocId });
+    
+    let newValue;
+    if (!existingCounter) {
+      // Create new counter with startValue + 1
+      newValue = startValue + 1;
+      await countersCollection.insertOne({
+        _id: counterDocId,
+        value: newValue
+      });
+    } else {
+      // Safely increment existing counter without conflicting update paths
+      const currentValue = Number(existingCounter.value) || startValue;
+      newValue = currentValue + 1;
+      await countersCollection.updateOne(
+        { _id: counterDocId },
+        { $set: { value: newValue } }
+      );
+    }
+    
+    return `${prefix}${newValue}`;
+  } catch (error) {
+    // Fallback: if there is any issue with the counters collection,
+    // log the error and generate a ticket number based on timestamp.
+    console.error('Error updating ticket counter, falling back to timestamp-based number:', error);
+    const timestampNumber = Date.now(); // milliseconds since epoch
+    return `${prefix}${timestampNumber}`;
   }
-  
-  return `${prefix}${newValue}`;
 };
 
 // Helper to fetch project member emails
