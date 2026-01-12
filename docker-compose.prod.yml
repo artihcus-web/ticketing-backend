@@ -8,13 +8,10 @@ services:
     image: ${DOCKER_USERNAME}/articket-backend:latest
     container_name: articket_backend
     restart: always
-    ports:
-      - "5002:5000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: "host"
     environment:
       - NODE_ENV=production
-      - PORT=5000
-      - MONGODB_URI=mongodb://articket_user:Artihcus%40123@host.docker.internal:27017/articket?authSource=articket&directConnection=true
+      - PORT=5002
+      - MONGODB_URI=mongodb://articket_user:Artihcus%40123@127.0.0.1:27017/articket?authSource=articket&directConnection=true
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=https://ticket.artihcus.com
