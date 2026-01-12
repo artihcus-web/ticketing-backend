@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    image: ganesh/ticketing-backend:latest
+    container_name: articket-backend
+    ports:
+      - "${PORT:-5002}:${PORT:-5002}"
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+      - PORT=${PORT:-5002}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-https://ticket.artihcus.com}
+    restart: unless-stopped
+    networks:
+      - articket-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PORT:-5002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  articket-network:
+    driver: bridge
+
+
