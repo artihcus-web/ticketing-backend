@@ -50,11 +50,25 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         script: |
           cd /data/articket
-          # Create .env file with secrets if it doesn't exist (simplied approach)
-          # Ideally, you should manage .env on the server securely
+          
+          # Stop old PM2 process if running (Transition to Docker)
+          if command -v pm2 &> /dev/null; then
+            pm2 stop articket-backend || true
+            pm2 delete articket-backend || true
+            pm2 save || true
+          fi
+          
+          # Create .env for Docker Compose
           echo "DOCKER_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" > .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
           
+          # Login to Docker Hub on server to ensure we can pull private images
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          
           # Pull and Restart
           docker-compose -f docker-compose.prod.yml pull
+          docker-compose -f docker-compose.prod.yml down --remove-orphans
           docker-compose -f docker-compose.prod.yml up -d
+          
+          # Clean up unused images
+          docker image prune -f

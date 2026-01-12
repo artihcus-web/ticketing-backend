@@ -1,7 +1,7 @@
 # Articket Backend API
 
 Backend API server for Articket application.
-[Deployment: Active]
+[Deployment: Active - Trigger #2]
 
 ## Setup
 

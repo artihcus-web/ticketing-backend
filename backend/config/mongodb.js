@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // MongoDB connection URL
-const MONGODB_URI = 'mongodb://artihcus19:27017'; // Forced update to bypass local .env
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://articket_user:Artihcus%40123@127.0.0.1:27017/articket?authSource=articket&directConnection=true';
 // Extract database name from URI if present, otherwise use DB_NAME env or default
 const getDBNameFromURI = (uri) => {
   try {
@@ -81,7 +81,7 @@ const createIndexes = async (database) => {
     await database.collection('projects').createIndex({ name: 1 }, { unique: true });
 
     // Counters collection indexes
-    await database.collection('counters').createIndex({ _id: 1 }, { unique: true });
+
 
     console.log('✅ MongoDB indexes created');
   } catch (error) {
