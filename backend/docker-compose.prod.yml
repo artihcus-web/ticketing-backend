@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ${DOCKER_USERNAME}/articket-backend:latest
+    container_name: articket_backend
+    restart: always
+    network_mode: "host"
+    environment:
+      - NODE_ENV=production
+      - PORT=5002
+      - MONGODB_URI=mongodb://articket_user:Artihcus%40123@127.0.0.1:27017/articket?authSource=articket&directConnection=true
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=https://ticket.artihcus.com

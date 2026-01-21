@@ -6,7 +6,7 @@ on:
       - main
       - master
     paths:
-      - '**'
+      - 'backend/**'
   workflow_dispatch: # Allows manual triggering
 
 env:
@@ -46,8 +46,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./backend
+          file: ./backend/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
