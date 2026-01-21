@@ -1,74 +1,29 @@
-name: Deploy Backend
+name: Deploy to Server
 
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'backend/**'
-      - 'docker-compose.prod.yml'
-      - '.github/workflows/deploy.yml'
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types:
+      - completed
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-
-    - name: Build and push Backend
-      uses: docker/build-push-action@v4
-      with:
-        context: ./backend
-        push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/articket-backend:latest
-
   deploy:
-    needs: build-and-push
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
     
-    - name: Copy Docker Compose to Server
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        source: "docker-compose.prod.yml"
-        target: "/data/articket/" # Target directory on server
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            cd /data/ticketing-backend
+            docker-compose pull
+            docker-compose up -d
+            docker image prune -f
+            echo "✅ Backend deployed successfully"
 
-    - name: Deploy on Server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        script: |
-          cd /data/articket
-          
-          # Stop old PM2 process if running (Transition to Docker)
-          if command -v pm2 &> /dev/null; then
-            pm2 stop articket-backend || true
-            pm2 delete articket-backend || true
-            pm2 save || true
-          fi
-          
-          # Create .env for Docker Compose
-          echo "DOCKER_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}" > .env
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-          
-          # Login to Docker Hub on server to ensure we can pull private images
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          
-          # Pull and Restart
-          docker-compose -f docker-compose.prod.yml pull
-          docker-compose -f docker-compose.prod.yml down --remove-orphans
-          docker-compose -f docker-compose.prod.yml up -d
-          
-          # Clean up unused images
-          docker image prune -f
