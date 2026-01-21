@@ -34,6 +34,7 @@ app.use('/team', teamRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
+  console.log('Health check requested');
   res.json({ status: 'ok', message: 'Backend is running' });
 });
 
