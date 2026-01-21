@@ -30,7 +30,7 @@ router.get('/:id', verifyToken, async (req, res) => {
     console.log('[DEBUG] Fetching project with ID:', id);
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     let project;
     try {
       const objectId = new ObjectId(id);
@@ -46,7 +46,7 @@ router.get('/:id', verifyToken, async (req, res) => {
         console.log('[DEBUG] Project found with string ID');
       }
     }
-    
+
     if (!project) {
       console.log('[DEBUG] Project not found. Searched with ID:', id);
       // Also try to list all projects to see what IDs exist
@@ -57,7 +57,7 @@ router.get('/:id', verifyToken, async (req, res) => {
         error: 'Project not found'
       });
     }
-    
+
     res.json({
       success: true,
       project: {
@@ -79,40 +79,40 @@ router.get('/:id', verifyToken, async (req, res) => {
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { name, description } = req.body;
-    
+
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
         error: 'Project name is required'
       });
     }
-    
+
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     // Check for duplicate project name (case-insensitive)
     const existingProjects = await projectsCollection.find({}).toArray();
     const duplicate = existingProjects.some(project => {
       const projectName = project.name;
       return projectName && projectName.trim().toLowerCase() === name.trim().toLowerCase();
     });
-    
+
     if (duplicate) {
       return res.status(400).json({
         success: false,
         error: 'This project already exists'
       });
     }
-    
+
     const newProject = {
       name: name.trim(),
       description: description || '',
       members: [],
       createdAt: new Date()
     };
-    
+
     const result = await projectsCollection.insertOne(newProject);
-    
+
     res.json({
       success: true,
       project: { id: result.insertedId.toString(), ...newProject }
@@ -131,33 +131,33 @@ router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
-    
+
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     let project;
     try {
       project = await projectsCollection.findOne({ _id: new ObjectId(id) });
     } catch (err) {
       project = await projectsCollection.findOne({ _id: id });
     }
-    
+
     if (!project) {
       return res.status(404).json({
         success: false,
         error: 'Project not found'
       });
     }
-    
+
     const updates = {};
     if (name !== undefined) updates.name = name.trim();
     if (description !== undefined) updates.description = description;
-    
+
     await projectsCollection.updateOne(
       { _id: project._id },
       { $set: updates }
     );
-    
+
     const updated = await projectsCollection.findOne({ _id: project._id });
     res.json({
       success: true,
@@ -178,23 +178,23 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const { id } = req.params;
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     let project;
     try {
       project = await projectsCollection.findOne({ _id: new ObjectId(id) });
     } catch (err) {
       project = await projectsCollection.findOne({ _id: id });
     }
-    
+
     if (!project) {
       return res.status(404).json({
         success: false,
         error: 'Project not found'
       });
     }
-    
+
     await projectsCollection.deleteOne({ _id: project._id });
-    
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting project:', error);
@@ -210,35 +210,35 @@ router.post('/:id/members', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { email, role, userType, password } = req.body;
-    
+
     if (!email || !role || !userType) {
       return res.status(400).json({
         success: false,
         error: 'Email, role, and userType are required'
       });
     }
-    
+
     const db = await getDB();
     const projectsCollection = db.collection('projects');
     const usersCollection = db.collection('users');
     const blockedEmailsCollection = db.collection('blocked_emails');
-    
+
     let project;
     try {
       project = await projectsCollection.findOne({ _id: new ObjectId(id) });
     } catch (err) {
       project = await projectsCollection.findOne({ _id: id });
     }
-    
+
     if (!project) {
       return res.status(404).json({
         success: false,
         error: 'Project not found'
       });
     }
-    
+
     const projectName = project.name;
-    
+
     // Check if email is blocked
     const blockedDoc = await blockedEmailsCollection.findOne({ _id: email });
     if (blockedDoc) {
@@ -248,7 +248,7 @@ router.post('/:id/members', verifyToken, async (req, res) => {
         blocked: true
       });
     }
-    
+
     // Determine final role
     let finalRole;
     if (userType === 'client') {
@@ -256,16 +256,16 @@ router.post('/:id/members', verifyToken, async (req, res) => {
     } else {
       finalRole = role === 'manager' ? 'project_manager' : 'employee';
     }
-    
+
     // Check for email uniqueness across ALL roles
     const existingUser = await usersCollection.findOne({ email: email });
-    
+
     let memberUid;
-    
+
     if (existingUser) {
       // User exists, update existing document
       memberUid = existingUser._id.toString();
-      
+
       // Check for role conflict
       if (existingUser.role !== finalRole || existingUser.userType !== userType) {
         return res.status(400).json({
@@ -273,7 +273,7 @@ router.post('/:id/members', verifyToken, async (req, res) => {
           error: `Email ${email} is already registered with a different role. Each email can only be used with one role across all projects.`
         });
       }
-      
+
       // Update user document
       const updateData = {
         role: finalRole,
@@ -281,13 +281,13 @@ router.post('/:id/members', verifyToken, async (req, res) => {
         updatedAt: new Date(),
         updatedBy: req.user.id,
       };
-      
+
       // Add project ID to projects array if not already present
       const currentProjects = existingUser.projects || [];
       if (!currentProjects.includes(id)) {
         updateData.projects = [...currentProjects, id];
       }
-      
+
       // Ensure project is always an array of names
       let currentProjectNames = Array.isArray(existingUser.project)
         ? existingUser.project
@@ -296,7 +296,7 @@ router.post('/:id/members', verifyToken, async (req, res) => {
         currentProjectNames.push(projectName);
       }
       updateData.project = currentProjectNames;
-      
+
       await usersCollection.updateOne(
         { _id: existingUser._id },
         { $set: updateData }
@@ -314,11 +314,23 @@ router.post('/:id/members', verifyToken, async (req, res) => {
         projects: [id],
         project: [projectName],
       };
-      
+
       const result = await usersCollection.insertOne(newUser);
       memberUid = result.insertedId.toString();
+
+      // Send credentials email only for new users
+      if (password) {
+        try {
+          const { sendCredentialsEmail } = await import('../utils/emailService.js');
+          await sendCredentialsEmail(email, finalRole, password, projectName);
+          console.log(`Credentials email sent to ${email}`);
+        } catch (emailErr) {
+          console.error('Failed to send credentials email:', emailErr);
+          // We don't block the response here, just log the error
+        }
+      }
     }
-    
+
     // Add user to project members
     const updatedMembers = [...(project.members || []), {
       email: email,
@@ -327,12 +339,12 @@ router.post('/:id/members', verifyToken, async (req, res) => {
       userType: userType,
       status: existingUser ? (existingUser.status || 'active') : 'pending'
     }];
-    
+
     await projectsCollection.updateOne(
       { _id: project._id },
       { $set: { members: updatedMembers } }
     );
-    
+
     const updated = await projectsCollection.findOne({ _id: project._id });
     res.json({
       success: true,
@@ -352,34 +364,34 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
   try {
     const { id, email } = req.params;
     const { role, userType } = req.body;
-    
+
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     let project;
     try {
       project = await projectsCollection.findOne({ _id: new ObjectId(id) });
     } catch (err) {
       project = await projectsCollection.findOne({ _id: id });
     }
-    
+
     if (!project) {
       return res.status(404).json({
         success: false,
         error: 'Project not found'
       });
     }
-    
+
     const members = project.members || [];
     const memberIndex = members.findIndex(m => m.email === email);
-    
+
     if (memberIndex === -1) {
       return res.status(404).json({
         success: false,
         error: 'Member not found in project'
       });
     }
-    
+
     // Determine final role
     let finalRole;
     if (userType === 'client') {
@@ -387,7 +399,7 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
     } else {
       finalRole = role === 'manager' ? 'project_manager' : 'employee';
     }
-    
+
     // Update member in project
     const updatedMembers = [...members];
     updatedMembers[memberIndex] = {
@@ -395,20 +407,20 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
       role: finalRole,
       userType: userType
     };
-    
+
     await projectsCollection.updateOne(
       { _id: project._id },
       { $set: { members: updatedMembers } }
     );
-    
+
     // Update user document if exists
     const usersCollection = db.collection('users');
     const existingUser = await usersCollection.findOne({ email: email });
-    
+
     if (existingUser) {
       await usersCollection.updateOne(
         { _id: existingUser._id },
-        { 
+        {
           $set: {
             role: finalRole,
             userType: userType,
@@ -418,7 +430,7 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
         }
       );
     }
-    
+
     const updated = await projectsCollection.findOne({ _id: project._id });
     res.json({
       success: true,
@@ -437,49 +449,49 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
 router.delete('/:id/members/:email', verifyToken, async (req, res) => {
   try {
     const { id, email } = req.params;
-    
+
     const db = await getDB();
     const projectsCollection = db.collection('projects');
-    
+
     let project;
     try {
       project = await projectsCollection.findOne({ _id: new ObjectId(id) });
     } catch (err) {
       project = await projectsCollection.findOne({ _id: id });
     }
-    
+
     if (!project) {
       return res.status(404).json({
         success: false,
         error: 'Project not found'
       });
     }
-    
+
     const members = project.members || [];
     const updatedMembers = members.filter(member => member.email !== email);
-    
+
     await projectsCollection.updateOne(
       { _id: project._id },
       { $set: { members: updatedMembers } }
     );
-    
+
     // Check if user is still a member of any other project
     const allProjects = await projectsCollection.find({}).toArray();
     let isStillMember = false;
-    
+
     allProjects.forEach(proj => {
       const projectMembers = proj.members || [];
       if (projectMembers.some(m => m.email === email)) {
         isStillMember = true;
       }
     });
-    
+
     // If not a member of any project, delete user document
     if (!isStillMember) {
       const usersCollection = db.collection('users');
       await usersCollection.deleteOne({ email: email });
     }
-    
+
     const updated = await projectsCollection.findOne({ _id: project._id });
     res.json({
       success: true,
@@ -502,16 +514,16 @@ router.delete('/blocked-emails/:email', verifyToken, async (req, res) => {
     const db = await getDB();
     const blockedEmailsCollection = db.collection('blocked_emails');
     const blocked = await blockedEmailsCollection.findOne({ _id: email });
-    
+
     if (!blocked) {
       return res.status(404).json({
         success: false,
         error: 'Email is not blocked'
       });
     }
-    
+
     await blockedEmailsCollection.deleteOne({ _id: email });
-    
+
     res.json({ success: true, message: 'Email unblocked successfully' });
   } catch (error) {
     console.error('Error unblocking email:', error);
