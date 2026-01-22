@@ -37,6 +37,11 @@ export const sendCredentialsEmail = async (toEmail, role, password, projectName)
         <p style="margin: 5px 0;"><strong>Email:</strong> ${toEmail}</p>
         <p style="margin: 5px 0;"><strong>Password:</strong> ${password}</p>
       </div>
+      <p>You can login directly using the link below:</p>
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="https://ticket.artihcus.com/login" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Login to Articket</a>
+      </p>
+      <p style="margin-top: 20px;">Or copy this link: <a href="https://ticket.artihcus.com/login">https://ticket.artihcus.com/login</a></p>
       <p>Please login and change your password if desired.</p>
       <p>Best regards,<br>The Articket Team</p>
     </div>
