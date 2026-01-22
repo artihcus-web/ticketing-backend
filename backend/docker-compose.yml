@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   backend:
-    image: ganesh/ticketing-backend:latest
+    # Must match the image built by GitHub Actions (see backend/.github/workflows/docker-build-push.yml)
+    image: ${DOCKERHUB_USERNAME:-ganesh}/articket-backend:latest
     container_name: articket-backend
     ports:
       - "${PORT:-5002}:${PORT:-5002}"
