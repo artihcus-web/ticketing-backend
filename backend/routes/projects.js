@@ -363,7 +363,10 @@ router.post('/:id/members', verifyToken, async (req, res) => {
 router.put('/:id/members/:email', verifyToken, async (req, res) => {
   try {
     const { id, email } = req.params;
-    const { role, userType } = req.body;
+    const { role, userType, email: newEmail } = req.body;
+
+    console.log(`[DEBUG] Updating member. ID: ${id}, Old Email: ${email}, New Email: ${newEmail}`);
+    console.log(`[DEBUG] Body - Role: ${role}, UserType: ${userType}, Email: ${newEmail}`);
 
     const db = await getDB();
     const projectsCollection = db.collection('projects');
@@ -376,6 +379,7 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
     }
 
     if (!project) {
+      console.log('[DEBUG] Project not found');
       return res.status(404).json({
         success: false,
         error: 'Project not found'
@@ -383,9 +387,11 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
     }
 
     const members = project.members || [];
-    const memberIndex = members.findIndex(m => m.email === email);
+    const memberIndex = members.findIndex(m => m.email.toLowerCase() === email.toLowerCase());
 
     if (memberIndex === -1) {
+      console.log(`[DEBUG] Member not found in project. ProjectId: ${project._id}, Email: ${email}`);
+      console.log(`[DEBUG] Available members:`, members.map(m => m.email));
       return res.status(404).json({
         success: false,
         error: 'Member not found in project'
@@ -400,10 +406,16 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
       finalRole = role === 'manager' ? 'project_manager' : 'employee';
     }
 
+    console.log(`[DEBUG] Final Role determined: ${finalRole}`);
+
+    // Use new email if provided, otherwise keep the old email
+    const emailToUse = newEmail && newEmail.trim() ? newEmail.trim() : email;
+
     // Update member in project
     const updatedMembers = [...members];
     updatedMembers[memberIndex] = {
       ...updatedMembers[memberIndex],
+      email: emailToUse,
       role: finalRole,
       userType: userType
     };
@@ -412,23 +424,69 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
       { _id: project._id },
       { $set: { members: updatedMembers } }
     );
+    console.log('[DEBUG] Project members array updated');
 
     // Update user document if exists
     const usersCollection = db.collection('users');
-    const existingUser = await usersCollection.findOne({ email: email });
+    const existingUser = await usersCollection.findOne({
+      email: { $regex: new RegExp(`^${email}$`, 'i') }
+    });
 
     if (existingUser) {
-      await usersCollection.updateOne(
-        { _id: existingUser._id },
-        {
-          $set: {
-            role: finalRole,
-            userType: userType,
-            updatedAt: new Date(),
-            updatedBy: req.user.id
-          }
+      console.log(`[DEBUG] Updating user document: ${existingUser._id}`);
+      
+      // Prepare update data
+      const updateData = {
+        role: finalRole,
+        userType: userType,
+        updatedAt: new Date(),
+        updatedBy: req.user.id
+      };
+
+      // Track if email is being changed for the first time (to send notification only once)
+      const isEmailChange = emailToUse.toLowerCase() !== email.toLowerCase();
+      const currentUserEmail = existingUser.email.toLowerCase();
+      const shouldSendEmail = isEmailChange && currentUserEmail !== emailToUse.toLowerCase();
+
+      // If email is being changed, update it
+      if (isEmailChange) {
+        // Check if new email already exists for a different user
+        const emailConflict = await usersCollection.findOne({
+          email: { $regex: new RegExp(`^${emailToUse}$`, 'i') },
+          _id: { $ne: existingUser._id }
+        });
+
+        if (emailConflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Email ${emailToUse} is already registered with a different user.`
+          });
         }
+
+        updateData.email = emailToUse;
+        console.log(`[DEBUG] Email updated from ${email} to ${emailToUse}`);
+      }
+
+      const updateResult = await usersCollection.updateOne(
+        { _id: existingUser._id },
+        { $set: updateData }
       );
+      console.log(`[DEBUG] User document updated successfully`);
+
+      // Send email notification only if email was actually changed from old to new
+      // This prevents duplicate emails when updating across multiple projects
+      if (shouldSendEmail && updateResult.modifiedCount > 0) {
+        try {
+          const { sendEmailUpdateNotification } = await import('../utils/emailService.js');
+          await sendEmailUpdateNotification(emailToUse, email, finalRole);
+          console.log(`Email update notification sent to ${emailToUse}`);
+        } catch (emailErr) {
+          console.error('Failed to send email update notification:', emailErr);
+          // We don't block the response here, just log the error
+        }
+      }
+    } else {
+      console.log(`[DEBUG] User document not found for email: ${email}`);
     }
 
     const updated = await projectsCollection.findOne({ _id: project._id });
@@ -468,7 +526,7 @@ router.delete('/:id/members/:email', verifyToken, async (req, res) => {
     }
 
     const members = project.members || [];
-    const updatedMembers = members.filter(member => member.email !== email);
+    const updatedMembers = members.filter(member => member.email.toLowerCase() !== email.toLowerCase());
 
     await projectsCollection.updateOne(
       { _id: project._id },
@@ -481,7 +539,7 @@ router.delete('/:id/members/:email', verifyToken, async (req, res) => {
 
     allProjects.forEach(proj => {
       const projectMembers = proj.members || [];
-      if (projectMembers.some(m => m.email === email)) {
+      if (projectMembers.some(m => m.email.toLowerCase() === email.toLowerCase())) {
         isStillMember = true;
       }
     });
@@ -489,7 +547,7 @@ router.delete('/:id/members/:email', verifyToken, async (req, res) => {
     // If not a member of any project, delete user document
     if (!isStillMember) {
       const usersCollection = db.collection('users');
-      await usersCollection.deleteOne({ email: email });
+      await usersCollection.deleteOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
     }
 
     const updated = await projectsCollection.findOne({ _id: project._id });
