@@ -12,6 +12,9 @@ services:
       - PORT=${PORT:-5002}
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-https://ticket.artihcus.com}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+      - MAIL_FROM=${MAIL_FROM}
     restart: unless-stopped
     networks:
       - articket-network
