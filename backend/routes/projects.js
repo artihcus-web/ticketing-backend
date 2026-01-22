@@ -257,7 +257,20 @@ router.post('/:id/members', verifyToken, async (req, res) => {
       finalRole = role === 'manager' ? 'project_manager' : 'employee';
     }
 
-    // Check for email uniqueness across ALL roles
+    // Check if member is already in the current project
+    const currentMembers = project.members || [];
+    const memberAlreadyInProject = currentMembers.some(
+      m => m.email.toLowerCase() === email.toLowerCase()
+    );
+
+    if (memberAlreadyInProject) {
+      return res.status(400).json({
+        success: false,
+        error: `Member with email ${email} is already in this project.`
+      });
+    }
+
+    // Check for existing user (member can be in multiple projects)
     const existingUser = await usersCollection.findOne({ email: email });
 
     let memberUid;
@@ -266,15 +279,12 @@ router.post('/:id/members', verifyToken, async (req, res) => {
       // User exists, update existing document
       memberUid = existingUser._id.toString();
 
-      // Check for role conflict
-      if (existingUser.role !== finalRole || existingUser.userType !== userType) {
-        return res.status(400).json({
-          success: false,
-          error: `Email ${email} is already registered with a different role. Each email can only be used with one role across all projects.`
-        });
-      }
+      console.log(`[DEBUG] Adding member - Email: ${email}`);
+      console.log(`[DEBUG] Existing user - role="${existingUser.role}", userType="${existingUser.userType}"`);
+      console.log(`[DEBUG] New values - role="${finalRole}", userType="${userType}"`);
 
-      // Update user document
+      // Update user document - add this project to their projects list and update role/userType
+      // Note: This will update the role/userType for all projects, allowing members to be in multiple projects
       const updateData = {
         role: finalRole,
         userType: userType,
@@ -331,8 +341,8 @@ router.post('/:id/members', verifyToken, async (req, res) => {
       }
     }
 
-    // Add user to project members
-    const updatedMembers = [...(project.members || []), {
+    // Add user to project members (member can be in multiple projects)
+    const updatedMembers = [...currentMembers, {
       email: email,
       role: finalRole,
       uid: memberUid,
@@ -411,6 +421,58 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
     // Use new email if provided, otherwise keep the old email
     const emailToUse = newEmail && newEmail.trim() ? newEmail.trim() : email;
 
+    // Check if email is being changed
+    const isEmailChange = emailToUse.toLowerCase() !== email.toLowerCase();
+
+    // Get users collection and find existing user early (needed for validation and update)
+    const usersCollection = db.collection('users');
+    const existingUser = await usersCollection.findOne({
+      email: { $regex: new RegExp(`^${email}$`, 'i') }
+    });
+
+    // If email is being changed, check if the new email already exists for a different user
+    if (isEmailChange) {
+      // Check if new email already exists in users collection for a DIFFERENT user
+      if (existingUser) {
+        const emailConflict = await usersCollection.findOne({
+          email: { $regex: new RegExp(`^${emailToUse}$`, 'i') },
+          _id: { $ne: existingUser._id }
+        });
+
+        if (emailConflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Email ${emailToUse} is already registered with a different user. Cannot update to an existing email.`
+          });
+        }
+      } else {
+        // If user doesn't exist in users collection, check if email exists at all
+        const emailExists = await usersCollection.findOne({
+          email: { $regex: new RegExp(`^${emailToUse}$`, 'i') }
+        });
+
+        if (emailExists) {
+          return res.status(400).json({
+            success: false,
+            error: `Email ${emailToUse} is already registered. Cannot update to an existing email.`
+          });
+        }
+      }
+
+      // Also check if the email already exists in the project members array for a different member
+      const emailExistsInProject = members.some(
+        (m, idx) => idx !== memberIndex && 
+        m.email.toLowerCase() === emailToUse.toLowerCase()
+      );
+
+      if (emailExistsInProject) {
+        return res.status(400).json({
+          success: false,
+          error: `Email ${emailToUse} already exists in this project for another member. Cannot update to an existing email.`
+        });
+      }
+    }
+
     // Update member in project
     const updatedMembers = [...members];
     updatedMembers[memberIndex] = {
@@ -426,12 +488,6 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
     );
     console.log('[DEBUG] Project members array updated');
 
-    // Update user document if exists
-    const usersCollection = db.collection('users');
-    const existingUser = await usersCollection.findOne({
-      email: { $regex: new RegExp(`^${email}$`, 'i') }
-    });
-
     if (existingUser) {
       console.log(`[DEBUG] Updating user document: ${existingUser._id}`);
       
@@ -444,25 +500,11 @@ router.put('/:id/members/:email', verifyToken, async (req, res) => {
       };
 
       // Track if email is being changed for the first time (to send notification only once)
-      const isEmailChange = emailToUse.toLowerCase() !== email.toLowerCase();
       const currentUserEmail = existingUser.email.toLowerCase();
       const shouldSendEmail = isEmailChange && currentUserEmail !== emailToUse.toLowerCase();
 
-      // If email is being changed, update it
+      // If email is being changed, update it (we already checked it doesn't exist above)
       if (isEmailChange) {
-        // Check if new email already exists for a different user
-        const emailConflict = await usersCollection.findOne({
-          email: { $regex: new RegExp(`^${emailToUse}$`, 'i') },
-          _id: { $ne: existingUser._id }
-        });
-
-        if (emailConflict) {
-          return res.status(400).json({
-            success: false,
-            error: `Email ${emailToUse} is already registered with a different user.`
-          });
-        }
-
         updateData.email = emailToUse;
         console.log(`[DEBUG] Email updated from ${email} to ${emailToUse}`);
       }
