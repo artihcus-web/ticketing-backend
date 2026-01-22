@@ -13,6 +13,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Disable ETag so intermediaries/browsers don't serve 304 for API calls
+app.set('etag', false);
+
 // Middleware
 // CORS configuration - allow requests from frontend
 const corsOptions = {
@@ -23,6 +26,15 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Prevent caching of API responses (fixes stale UI after updates in some deployments)
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  next();
+});
 
 // Routes
 app.use('/auth', authRoutes);
