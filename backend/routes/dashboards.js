@@ -19,6 +19,21 @@ router.get('/user', verifyToken, async (req, res) => {
     }
 
     if (!user) {
+      // Fallback for external users verified by token middleware
+      if (req.user && req.user.email) {
+        return res.json({
+          success: true,
+          user: {
+            id: req.user.id,
+            email: req.user.email,
+            role: req.user.role,
+            userName: req.user.userName,
+            fullName: req.user.fullName,
+            isExternal: true
+          }
+        });
+      }
+
       return res.status(404).json({
         success: false,
         error: 'User not found',
@@ -31,6 +46,7 @@ router.get('/user', verifyToken, async (req, res) => {
         id: user._id.toString(),
         ...user,
         _id: undefined,
+        isExternal: false
       },
     });
   } catch (error) {
@@ -42,46 +58,72 @@ router.get('/user', verifyToken, async (req, res) => {
   }
 });
 
-// GET /dashboards/projects - Get projects for current user (filtered by role) (MongoDB)
+// GET /dashboards/projects - Get projects for current user from External REST API
 router.get('/projects', verifyToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
-    const userRole = req.user.role;
+    const userEmail = req.user.email?.toLowerCase().trim();
+    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
 
-    const db = await getDB();
-    const projectsCollection = db.collection('projects');
+    // 1. Fetch current user's assigned projects from employees API
+    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/employees`;
+    const empResponse = await fetch(employeesUrl);
+    let assignedProjectIds = [];
 
-    const projectsDocs = await projectsCollection.find({}).toArray();
+    if (empResponse.ok) {
+      const empData = await empResponse.json();
+      const employees = empData.employees || empData;
+      const currentEmp = employees.find(e => e.email?.toLowerCase().trim() === userEmail);
+      if (currentEmp && currentEmp.assignedProjects) {
+        assignedProjectIds = currentEmp.assignedProjects;
+      }
+    }
 
-    const projects = projectsDocs
-      .map((doc) => ({
-        id: doc._id.toString(),
-        ...doc,
-        _id: undefined,
-      }))
-      .filter((project) => {
-        const members = project.members || [];
-        return members.some(
-          (m) =>
-            m.email === userEmail &&
-            (m.role === userRole ||
-              (userRole === 'client_head' &&
-                (m.role === 'client_head' || m.role === 'client')) ||
-              (userRole === 'project_manager' && m.role === 'project_manager') ||
-              (userRole === 'employee' && m.role === 'employee') ||
-              (userRole === 'client' && m.role === 'client')),
+    // 2. Fetch all projects from REST API
+    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
+    const projResponse = await fetch(projectsUrl);
+
+    if (!projResponse.ok) {
+      throw new Error(`External API returned ${projResponse.status}: ${projResponse.statusText}`);
+    }
+
+    const projData = await projResponse.json();
+    const allProjects = Array.isArray(projData) ? projData : (projData.projects || []);
+
+    // 3. Search through all projects to find where the user is a member
+    const userProjects = allProjects
+      .filter(p => {
+        // Check if user is in assignedProjectIds from employee profile
+        const pid = p._id || p.id;
+        if (assignedProjectIds.includes(pid)) return true;
+
+        // Also check if user is listed in employees or projectManagers arrays
+        const members = [
+          ...(p.employees || []),
+          ...(p.projectManagers || [])
+        ];
+
+        return members.some(m =>
+          (m.email && m.email.toLowerCase().trim() === userEmail) ||
+          (m.employeeId && m.employeeId === req.user.employeeId) ||
+          (m.username && m.username.toLowerCase().trim() === userEmail)
         );
-      });
+      })
+      .map(p => ({
+        id: p._id || p.id,
+        name: p.projectName || p.name,
+        description: p.description || 'External Project',
+        isExternal: true
+      }));
 
     res.json({
       success: true,
-      projects,
+      projects: userProjects,
     });
   } catch (error) {
-    console.error('Error fetching projects:', error);
+    console.error('Error fetching projects from external API:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch projects',
+      error: 'Failed to fetch projects from external API',
     });
   }
 });
@@ -104,10 +146,36 @@ router.get('/tickets', verifyToken, async (req, res) => {
     let tickets = [];
 
     if (projectId) {
-      const byId = await ticketsCollection
-        .find({ projectId: projectId })
-        .toArray();
-      tickets = byId.map((t) => ({
+      // Search by ID first
+      const query = { $or: [{ projectId: projectId }] };
+
+      // Fetch project name from REST API to allow matching legacy tickets
+      try {
+        const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+        const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
+        const response = await fetch(projectsUrl);
+
+        if (response.ok) {
+          const data = await response.json();
+          const projectsArray = Array.isArray(data) ? data : (data.projects || []);
+          const project = projectsArray.find(p =>
+            (p._id && p._id.toString() === projectId) ||
+            (p.id && p.id.toString() === projectId)
+          );
+
+          if (project) {
+            const projectName = project.projectName || project.name;
+            if (projectName) {
+              query.$or.push({ project: projectName });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching project from REST API:', err);
+      }
+
+      const foundTickets = await ticketsCollection.find(query).toArray();
+      tickets = foundTickets.map((t) => ({
         id: t._id.toString(),
         ...t,
         _id: undefined,

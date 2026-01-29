@@ -59,6 +59,16 @@ export const getDB = async () => {
 };
 
 /**
+ * Get external database instance (myapp)
+ */
+export const getExternalDB = async () => {
+  if (!client) {
+    await connectDB();
+  }
+  return client.db('myapp');
+};
+
+/**
  * Create indexes for collections
  */
 const createIndexes = async (database) => {

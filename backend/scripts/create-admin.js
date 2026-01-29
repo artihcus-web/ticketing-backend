@@ -10,8 +10,8 @@ const __dirname = dirname(__filename);
 // Load environment variables
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
-const MONGODB_URI = 'mongodb://artihcus19:27017/ticketing'; // Forced update
-const DB_NAME = 'ticketing';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/articket';
+const DB_NAME = MONGODB_URI.includes('/') ? MONGODB_URI.split('/').pop().split('?')[0] : 'articket';
 
 // Admin user details
 const adminUser = {

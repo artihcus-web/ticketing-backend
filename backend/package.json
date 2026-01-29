@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build": "echo 'No build step required for backend'",
+    "lint": "echo 'No lint configuration found for backend'"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
