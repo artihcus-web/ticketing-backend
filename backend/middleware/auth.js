@@ -17,7 +17,7 @@ export const verifyToken = async (req, res, next) => {
 
   // 1. Try external verification first
   try {
-    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+    const apiBase = process.env.EMPLOYEES_API_URL || process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
     const verifyUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/me`;
 
     console.log(`[AUTH] 🛡️ Middleware: Verifying token for endpoint: ${req.originalUrl}`);

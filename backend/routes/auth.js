@@ -74,7 +74,7 @@ router.post('/login', async (req, res) => {
     // 2. Bridge to external API (Everyone else, or if local admin password failed)
     console.log(`[AUTH] 🌉 Bridging login for: ${loginIdentifier}`);
     try {
-      const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+      const apiBase = process.env.EMPLOYEES_API_URL || process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
       const externalLoginUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/login`;
 
       const externalResponse = await fetch(externalLoginUrl, {
