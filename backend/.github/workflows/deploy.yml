@@ -13,6 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.prod.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "backend/docker-compose.prod.yml"
+          target: "/data/articket"
+          strip_components: 1
+
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
