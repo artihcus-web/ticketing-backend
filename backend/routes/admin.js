@@ -7,9 +7,12 @@ const router = express.Router();
 
 // Middleware to check if user is admin
 const isAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
+  console.log(`[AUTH] 🛡️ isAdmin Check: user=${req.user?.email}, role=${req.user?.role}`);
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'Admin')) {
+    console.log('[AUTH] ✅ isAdmin Check Passed');
     next();
   } else {
+    console.warn(`[AUTH] ⛔ isAdmin Check Failed: user role is ${req.user?.role}`);
     return res.status(403).json({
       success: false,
       error: 'Access denied. Admin role required.'
@@ -17,8 +20,8 @@ const isAdmin = (req, res, next) => {
   }
 };
 
-// GET /admin/stats - Get admin dashboard statistics
 router.get('/stats', verifyToken, isAdmin, async (req, res) => {
+  console.log('[API] 📊 Fetching admin/stats...');
   try {
     const db = await getDB();
     const usersCollection = db.collection('users');
@@ -28,7 +31,7 @@ router.get('/stats', verifyToken, isAdmin, async (req, res) => {
     const totalUsers = await usersCollection.countDocuments();
     const totalTickets = await ticketsCollection.countDocuments();
     const totalProjects = await projectsCollection.countDocuments();
-    
+
     const openTickets = await ticketsCollection.countDocuments({ status: 'Open' });
     const inProgressTickets = await ticketsCollection.countDocuments({ status: 'In Progress' });
     const resolvedTickets = await ticketsCollection.countDocuments({ status: 'Resolved' });
@@ -89,6 +92,7 @@ router.get('/users', verifyToken, isAdmin, async (req, res) => {
 
 // GET /admin/ticket-stats - Get ticket statistics
 router.get('/ticket-stats', verifyToken, isAdmin, async (req, res) => {
+  console.log('[API] 📉 Fetching admin/ticket-stats...');
   try {
     const db = await getDB();
     const ticketsCollection = db.collection('tickets');
@@ -114,7 +118,7 @@ router.get('/ticket-stats', verifyToken, isAdmin, async (req, res) => {
     // Calculate tickets over time (last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const ticketsOverTime = [];
     const dateMap = {};
 
@@ -130,10 +134,10 @@ router.get('/ticket-stats', verifyToken, isAdmin, async (req, res) => {
       }
 
       // Tickets over time
-      const createdDate = ticket.created instanceof Date 
-        ? ticket.created 
+      const createdDate = ticket.created instanceof Date
+        ? ticket.created
         : new Date(ticket.created);
-      
+
       if (createdDate >= thirtyDaysAgo) {
         const dateKey = createdDate.toISOString().split('T')[0];
         dateMap[dateKey] = (dateMap[dateKey] || 0) + 1;

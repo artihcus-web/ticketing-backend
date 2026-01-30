@@ -22,10 +22,12 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             set -e
-            mkdir -p /data/articket
             cd /data/articket
-            docker-compose -f docker-compose.prod.yml pull
-            docker-compose -f docker-compose.prod.yml up -d
+            
+            # This is the modern V2 command (no hyphen)
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            
             docker image prune -f
-            echo "✅ Backend deployed successfully"
+            echo "✅ Backend deployed successfully via Docker Compose V2"
 
