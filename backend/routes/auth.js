@@ -10,11 +10,18 @@ dotenv.config();
 
 const router = express.Router();
 
+// Helper to clean and join URL parts
+const joinUrl = (base, path) => {
+  const cleanBase = base.replace(/\/+$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  return `${cleanBase}/${cleanPath}`;
+};
+
 // POST /auth/external-login - Proxy login to external API
 router.post('/external-login', async (req, res) => {
   try {
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const loginUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/login`;
+    const loginUrl = joinUrl(apiBase, 'api/auth/login');
 
     console.log(`🔍 Backend proxying login to: ${loginUrl}`);
 
@@ -26,11 +33,13 @@ router.post('/external-login', async (req, res) => {
       body: JSON.stringify(req.body),
     });
 
-    const data = await response.json();
+    console.log(`🔌 External Login Response: ${response.status} ${response.statusText}`);
+
+    const data = await response.json().catch(() => ({}));
     res.status(response.status).json(data);
   } catch (error) {
     console.error('❌ External login proxy error:', error);
-    res.status(500).json({ success: false, error: 'Failed' });
+    res.status(500).json({ success: false, error: 'Proxy failed to reach external API' });
   }
 });
 
@@ -43,7 +52,7 @@ router.get('/external-verify', async (req, res) => {
     }
 
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/me`;
+    const verifyUrl = joinUrl(apiBase, 'api/auth/me');
 
     console.log(`🔍 Backend proxying verify to: ${verifyUrl}`);
 
@@ -54,11 +63,13 @@ router.get('/external-verify', async (req, res) => {
       }
     });
 
-    const data = await response.json();
+    console.log(`🔌 External Verify Response: ${response.status} ${response.statusText}`);
+
+    const data = await response.json().catch(() => ({}));
     res.status(response.status).json(data);
   } catch (error) {
     console.error('❌ External verify proxy error:', error);
-    res.status(500).json({ success: false, error: 'Failed' });
+    res.status(500).json({ success: false, error: 'Proxy failed to reach external API' });
   }
 });
 
