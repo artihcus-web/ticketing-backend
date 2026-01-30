@@ -13,7 +13,7 @@ const router = express.Router();
 
 
 // POST /auth/login
-// POST /login - Restricted to Admins only
+// Updated to handle both local (Admin) and External (Everyone else) login
 router.post('/login', async (req, res) => {
   try {
     const { email, password, identifier } = req.body;
@@ -29,72 +29,86 @@ router.post('/login', async (req, res) => {
     const db = await getDB();
     const usersCollection = db.collection('users');
 
-    // Find user by email or empId
-    const user = await usersCollection.findOne({
+    // 1. Check local DB first (Admins)
+    const localUser = await usersCollection.findOne({
       $or: [
         { email: loginIdentifier.toLowerCase() },
         { empId: loginIdentifier }
       ]
     });
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid email or password'
-      });
+    // If it's a local Admin, handle locally
+    if (localUser && localUser.role?.toLowerCase() === 'admin') {
+      if (localUser.status === 'disabled' || localUser.status === 'deleted') {
+        return res.status(403).json({
+          success: false,
+          error: `Your account is ${localUser.status}.`
+        });
+      }
+
+      const passwordValid = await bcrypt.compare(password, localUser.password);
+      if (passwordValid) {
+        const token = generateToken({
+          id: localUser._id.toString(),
+          email: localUser.email,
+          role: localUser.role,
+        });
+
+        return res.json({
+          success: true,
+          token,
+          user: {
+            id: localUser._id.toString(),
+            role: localUser.role,
+            firstName: localUser.firstName,
+            lastName: localUser.lastName,
+            empId: localUser.empId,
+            clientId: localUser.clientId,
+            email: localUser.email
+          },
+          redirectPath: '/admin'
+        });
+      }
     }
 
-    // CRITICAL: Only allow Admin login via local fallback
-    if (user.role?.toLowerCase() !== 'admin') {
-      return res.status(403).json({
+    // 2. Bridge to external API (Everyone else, or if local admin password failed)
+    console.log(`[AUTH] 🌉 Bridging login for: ${loginIdentifier}`);
+    try {
+      const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+      const externalLoginUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/login`;
+
+      const externalResponse = await fetch(externalLoginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginIdentifier, password })
+      });
+
+      if (externalResponse.ok) {
+        const externalData = await externalResponse.json();
+        console.log(`[AUTH] ✅ External login success for: ${loginIdentifier}`);
+        return res.json({
+          success: true,
+          token: externalData.token,
+          user: externalData.user
+        });
+      } else {
+        const errorData = await externalResponse.json().catch(() => ({}));
+        console.warn(`[AUTH] ❌ External login failed for ${loginIdentifier}:`, externalResponse.status);
+        return res.status(externalResponse.status).json({
+          success: false,
+          error: errorData.message || 'Invalid email or password'
+        });
+      }
+    } catch (externalErr) {
+      console.error("[AUTH] 💥 External login bridge crash:", externalErr.message);
+      return res.status(502).json({
         success: false,
-        error: 'Only Admin accounts can use local authentication.'
+        error: 'Authentication service unavailable.'
       });
     }
-
-    if (user.status === 'disabled' || user.status === 'deleted') {
-      return res.status(403).json({
-        success: false,
-        error: `Your account is ${user.status}.`
-      });
-    }
-
-    // Verify password
-    const passwordValid = await bcrypt.compare(password, user.password);
-    if (!passwordValid) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid email or password'
-      });
-    }
-
-    // Generate token
-    const token = generateToken({
-      id: user._id.toString(),
-      email: user.email,
-      role: user.role,
-    });
-
-    // Determine redirect path
-    let redirectPath = '/admin'; // Local fallback is only for admins
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id.toString(),
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        empId: user.empId,
-        clientId: user.clientId,
-        email: user.email
-      },
-      redirectPath
-    });
 
   } catch (err) {
-    console.error("Local login error:", err);
+    console.error("Login process error:", err);
     return res.status(500).json({
       success: false,
       error: 'An unexpected error occurred.'
