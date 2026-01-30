@@ -20,7 +20,7 @@ export const verifyToken = async (req, res, next) => {
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
     const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/me`;
 
-    console.log(`🔍 Backend verifying token at: ${verifyUrl}`);
+    console.log(`[AUTH] 🔍 Verifying token at: ${verifyUrl}`);
 
     const response = await fetch(verifyUrl, {
       method: 'GET',
@@ -31,24 +31,33 @@ export const verifyToken = async (req, res, next) => {
 
     if (response.ok) {
       const data = await response.json();
-      console.log('✅ External verification success');
-      if (data.user) {
+      console.log('[AUTH] ✅ External verification success');
+      if (data.user || data.id || data.email) {
         // Map for consistency with the rest of the application
+        const user = data.user || data;
         req.user = {
-          id: data.user.id || data.user._id,
-          email: data.user.email,
-          role: data.user.role,
-          userName: data.user.username,
-          fullName: data.user.fullName
+          id: user.id || user._id,
+          email: user.email,
+          role: user.role,
+          userName: user.username || user.userName,
+          fullName: user.fullName || `${user.firstName || ''} ${user.lastName || ''}`.trim()
         };
+        console.log(`[AUTH] 👤 User identified: ${req.user.email} (${req.user.role})`);
         return next();
+      } else {
+        console.warn('[AUTH] ⚠️ External API returned success but no user data:', data);
       }
     } else {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(`❌ External verification failed: Status ${response.status}`, errorData);
+      let errorData = {};
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { raw: await response.text().catch(() => 'No text content') };
+      }
+      console.error(`[AUTH] ❌ External verification failed: Status ${response.status}`, JSON.stringify(errorData));
     }
   } catch (error) {
-    console.error('❌ External token verification crash:', error.message);
+    console.error('[AUTH] ❌ External token verification crash:', error.message);
   }
 
   // 2. Fallback to local JWT verification (for Admins)
