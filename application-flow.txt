@@ -1,0 +1,77 @@
+ADMIN PANEL
+1. Login Flow
+   - Access the login page.
+   - Use admin credentials: admin@gmail.com / Admin@12.
+   - Upon successful login, you are redirected to the Admin Dashboard.
+
+2. Admin Dashboard & Navigation
+   - The Admin Panel features a left sidebar with navigation options:
+     - Dashboard (Overview of stats)
+     - Projects
+     - Tickets
+     - Edit Ticketform
+
+3. Projects Page
+   - Create Projects: Admin can create new projects by providing a name and description.
+   - Manage Members: Admin can add members to a project.
+     - Members are categorized as "Company People" (Employees) or "Client People".
+     - When adding a member, you provide their Email and Password (which become their login credentials) and assign a Role (e.g., Project Manager, Employee, Client Head, Client).
+   - Edit/Delete: Admin has full control to edit project details or delete entire projects. Admin can also edit or remove individual members from projects.
+
+4. Tickets Page
+   - Management: Admin cannot create new tickets here but can view, edit, and delete existing tickets.
+   - Updates: Admin can update ticket details like Status, Priority, and Category.
+   - Note: Any changes made to a ticket are recorded and displayed in the comment box of that ticket for tracking purposes.
+
+5. Edit Ticket Form Page
+   - Form Customization: This page allows the Admin to customize the "Raise Ticket" form used by all users.
+   - Field Management: Admin can Add, Edit, or Delete fields (e.g., Subject, Description, Type of Issue).
+   - Dropdown Configuration: Admin can manage cascading dropdowns for Module -> Category -> Sub-Category options.
+
+PROJECT MANAGER PANEL
+1. Login Flow
+   - Access the login page.
+   - Use credentials provided by the Admin (sent via email when added to a project).
+   - Upon successful login, you are redirected to the Project Manager Dashboard.
+
+2. Project Manager Dashboard & Navigation
+   - The Dashboard features a left sidebar with navigation options:
+     - Dashboard (Overview of stats)
+     - Tickets
+     - Team
+     - KPI Reports
+     - Create Ticket
+   - Top Navigation: Allows switching between assigned projects (if multiple).
+
+3. Dashboard (Stats & Trends)
+   - Summary Cards: View quick stats for Active Tickets, Team Members, Completed Tickets, Open, In Progress, Resolved, and Closed tickets.
+   - My Project Tickets: A table view of tickets assigned to the project with filters for Date Range and Period (Week/Month).
+   - Priority Distribution: Visual breakdown of tickets by priority (Critical, High, Medium, Low).
+   - Trends: Line chart showing ticket trends (Created vs Resolved/Closed) over the selected month.
+
+4. Tickets Page
+   - Filtering: Apply filters for Status, Priority, Raised By (Employee/Client), Date Range, or Search by Subject/ID.
+   - Ticket Management:
+     - View Ticket Details: Click on a ticket to view full details.
+     - Comments: View conversation history, add internal or external comments.
+     - Status Updates: Change ticket status (e.g., Open -> In Progress -> Resolved).
+     - Assignment: Assign or re-assign tickets to team members.
+     - Edit Ticket: Modify ticket details if necessary.
+   - Export: Download the filtered ticket list as an Excel file.
+
+5. Team Page
+   - Team Overview: View a list of all team members (Employees and Client users) assigned to the project.
+   - Member Details: Click on a member to view their profile and specific KPI Report.
+   - KPI Report: View individual performance metrics (Response Time, Resolution Time) and download their KPI report (CSV).
+
+6. KPI Reports Page
+   - SLA Reference: View standard Service Level Agreement (SLA) rules for different priorities.
+   - Analysis:
+     - Apply filters for Year, Month, and Period (e.g., Last 3/6 Months).
+     - View Bar Charts for Ticket Volume (Created/Closed/Breached) and Performance (Response/Resolution Times).
+   - Export: Download the comprehensive KPI report (including charts and data) as an Excel file.
+
+7. Create Ticket Page
+   - Raise Ticket: Create a new support ticket on behalf of a client or for internal issues.
+   - Form Fields: Select Project, Module, Category, Sub-Category, Priority, and provide a Description (supports rich text and images).
+   - Attachments: Upload relevant files or screenshots.
