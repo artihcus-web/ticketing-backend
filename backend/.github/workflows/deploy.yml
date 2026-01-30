@@ -21,9 +21,11 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            cd /data/ticketing-backend
-            docker-compose pull
-            docker-compose up -d
+            set -e
+            mkdir -p /data/articket
+            cd /data/articket
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d
             docker image prune -f
             echo "✅ Backend deployed successfully"
 

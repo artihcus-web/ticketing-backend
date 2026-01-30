@@ -3,7 +3,7 @@ version: '3.8'
 services:
   backend:
     build: 
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     image: ${DOCKER_USERNAME}/articket-backend:latest
     container_name: articket_backend
