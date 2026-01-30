@@ -18,23 +18,30 @@ export const verifyToken = async (req, res, next) => {
   // 1. Try external verification first
   try {
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/me`;
+    const verifyUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/me`;
 
-    console.log(`[AUTH] 🔍 Verifying token at: ${verifyUrl}`);
+    console.log(`[AUTH] 🛡️ Middleware: Verifying token for endpoint: ${req.originalUrl}`);
+    console.log(`[AUTH] 🔍 Target: ${verifyUrl}`);
+    console.log(`[AUTH] 🎫 Token Prefix: ${token.substring(0, 15)}...`);
 
     const response = await fetch(verifyUrl, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'User-Agent': 'Artihcus-Ticketing-Backend/1.0'
       }
     });
+
+    const responseStatus = response.status;
+    console.log(`[AUTH] 📥 External API Response Status: ${responseStatus}`);
 
     if (response.ok) {
       const data = await response.json();
       console.log('[AUTH] ✅ External verification success');
-      if (data.user || data.id || data.email) {
-        // Map for consistency with the rest of the application
-        const user = data.user || data;
+
+      const user = data.user || data;
+      if (user && (user.id || user._id || user.email)) {
         req.user = {
           id: user.id || user._id,
           email: user.email,
@@ -45,19 +52,20 @@ export const verifyToken = async (req, res, next) => {
         console.log(`[AUTH] 👤 User identified: ${req.user.email} (${req.user.role})`);
         return next();
       } else {
-        console.warn('[AUTH] ⚠️ External API returned success but no user data:', data);
+        console.warn('[AUTH] ⚠️ External API success but missing user data fields:', JSON.stringify(data));
       }
     } else {
-      let errorData = {};
+      let errorBody = '';
       try {
-        errorData = await response.json();
+        errorBody = await response.text();
       } catch (e) {
-        errorData = { raw: await response.text().catch(() => 'No text content') };
+        errorBody = 'Could not read response body';
       }
-      console.error(`[AUTH] ❌ External verification failed: Status ${response.status}`, JSON.stringify(errorData));
+      console.error(`[AUTH] ❌ External verification failed (Status ${responseStatus}):`, errorBody);
     }
   } catch (error) {
-    console.error('[AUTH] ❌ External token verification crash:', error.message);
+    console.error('[AUTH] 💥 Crash during external token verification:', error.message);
+    console.error(error.stack);
   }
 
   // 2. Fallback to local JWT verification (for Admins)
