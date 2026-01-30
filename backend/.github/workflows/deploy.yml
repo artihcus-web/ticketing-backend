@@ -35,13 +35,20 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            set -e
+            set -ex
             cd /data/articket
             
-            # This is the modern V2 command (no hyphen)
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            echo "🔎 Verifying configuration files..."
+            ls -la
             
+            echo "🚚 Pulling latest image..."
+            docker pull artihcus/articket-backend:latest
+            
+            echo "🚀 Recreating container..."
+            # Using force-recreate ensures it uses the new image even if compose thinks nothing changed
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            
+            echo "🧹 Cleaning up old images..."
             docker image prune -f
             echo "✅ Backend deployed successfully via Docker Compose V2"
 
