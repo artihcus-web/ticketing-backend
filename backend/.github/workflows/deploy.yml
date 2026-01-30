@@ -38,17 +38,22 @@ jobs:
             set -ex
             cd /data/articket
             
-            echo "🔎 Verifying configuration files..."
-            ls -la
+            echo "🔎 Checking current images..."
+            docker images artihcus/articket-backend:latest
             
             echo "🚚 Pulling latest image..."
             docker pull artihcus/articket-backend:latest
             
-            echo "🚀 Recreating container..."
-            # Using force-recreate ensures it uses the new image even if compose thinks nothing changed
-            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            echo "� Stopping and removing old container (if exists)..."
+            docker stop articket_backend || true
+            docker rm articket_backend || true
             
-            echo "🧹 Cleaning up old images..."
-            docker image prune -f
-            echo "✅ Backend deployed successfully via Docker Compose V2"
+            echo "🚀 Starting new container..."
+            docker compose -f docker-compose.prod.yml up -d
+            
+            echo "📊 Verification:"
+            docker ps | grep articket_backend
+            docker inspect articket_backend --format '{{.Created}}'
+            
+            echo "✅ Backend deployed successfully"
 
