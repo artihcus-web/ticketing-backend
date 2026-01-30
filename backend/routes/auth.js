@@ -10,68 +10,7 @@ dotenv.config();
 
 const router = express.Router();
 
-// Helper to clean and join URL parts
-const joinUrl = (base, path) => {
-  const cleanBase = base.replace(/\/+$/, '');
-  const cleanPath = path.replace(/^\/+/, '');
-  return `${cleanBase}/${cleanPath}`;
-};
 
-// POST /auth/external-login - Proxy login to external API
-router.post('/external-login', async (req, res) => {
-  try {
-    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const loginUrl = joinUrl(apiBase, 'api/auth/login');
-
-    console.log(`🔍 Backend proxying login to: ${loginUrl}`);
-
-    const response = await fetch(loginUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(req.body),
-    });
-
-    console.log(`🔌 External Login Response: ${response.status} ${response.statusText}`);
-
-    const data = await response.json().catch(() => ({}));
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('❌ External login proxy error:', error);
-    res.status(500).json({ success: false, error: 'Proxy failed to reach external API' });
-  }
-});
-
-// GET /auth/external-verify - Proxy token verification to external API
-router.get('/external-verify', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ success: false, error: 'No token' });
-    }
-
-    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const verifyUrl = joinUrl(apiBase, 'api/auth/me');
-
-    console.log(`🔍 Backend proxying verify to: ${verifyUrl}`);
-
-    const response = await fetch(verifyUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    console.log(`🔌 External Verify Response: ${response.status} ${response.statusText}`);
-
-    const data = await response.json().catch(() => ({}));
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('❌ External verify proxy error:', error);
-    res.status(500).json({ success: false, error: 'Proxy failed to reach external API' });
-  }
-});
 
 // POST /auth/login
 // POST /login - Restricted to Admins only
