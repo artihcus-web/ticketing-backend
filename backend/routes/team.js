@@ -3,6 +3,23 @@ import { getDB } from '../config/mongodb.js';
 import { verifyToken } from '../middleware/auth.js';
 import { ObjectId } from 'mongodb';
 
+// GET /team/external-employees - Proxy employees list from external API
+router.get('/external-employees', verifyToken, async (req, res) => {
+  try {
+    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+    const apiUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/employees`;
+
+    console.log(`🔍 Backend proxying employees fetch to: ${apiUrl}`);
+
+    const response = await fetch(apiUrl);
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error('❌ External employees proxy error:', error);
+    res.status(500).json({ success: false, error: 'Failed' });
+  }
+});
+
 const router = express.Router();
 
 // GET /team/members - Get all team members (employees and project managers) (MongoDB)

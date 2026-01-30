@@ -10,6 +10,58 @@ dotenv.config();
 
 const router = express.Router();
 
+// POST /auth/external-login - Proxy login to external API
+router.post('/external-login', async (req, res) => {
+  try {
+    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+    const loginUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/login`;
+
+    console.log(`🔍 Backend proxying login to: ${loginUrl}`);
+
+    const response = await fetch(loginUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error('❌ External login proxy error:', error);
+    res.status(500).json({ success: false, error: 'Failed' });
+  }
+});
+
+// GET /auth/external-verify - Proxy token verification to external API
+router.get('/external-verify', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, error: 'No token' });
+    }
+
+    const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+    const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/me`;
+
+    console.log(`🔍 Backend proxying verify to: ${verifyUrl}`);
+
+    const response = await fetch(verifyUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error('❌ External verify proxy error:', error);
+    res.status(500).json({ success: false, error: 'Failed' });
+  }
+});
+
 // POST /auth/login
 // POST /login - Restricted to Admins only
 router.post('/login', async (req, res) => {
