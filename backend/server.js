@@ -57,18 +57,24 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/auth', authRoutes);
-app.use('/tickets', ticketRoutes);
-app.use('/projects', projectRoutes);
-app.use('/admin', adminRoutes);
-app.use('/dashboards', dashboardRoutes);
-app.use('/team', teamRoutes);
+const registerRoutes = (prefix = '') => {
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/tickets`, ticketRoutes);
+  app.use(`${prefix}/projects`, projectRoutes);
+  app.use(`${prefix}/admin`, adminRoutes);
+  app.use(`${prefix}/dashboards`, dashboardRoutes);
+  app.use(`${prefix}/team`, teamRoutes);
 
-// Health check
-app.get('/health', (req, res) => {
-  console.log('Health check requested');
-  res.json({ status: 'ok', message: 'Backend is running' });
-});
+  // Health check
+  app.get(`${prefix}/health`, (req, res) => {
+    console.log(`Health check requested${prefix ? ' (' + prefix + ')' : ''}`);
+    res.json({ status: 'ok', message: 'Backend is running', prefix: prefix || 'root' });
+  });
+};
+
+// Support both prefixed and non-prefixed routes
+registerRoutes('/api');
+registerRoutes();
 
 // Global error handler for unhandled promise rejections
 process.on('unhandledRejection', (err) => {
