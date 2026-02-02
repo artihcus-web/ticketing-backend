@@ -79,7 +79,7 @@ router.get('/projects', verifyToken, async (req, res) => {
     }
 
     // 2. Fetch all projects from REST API
-    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}projects`;
+    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
     const projResponse = await fetch(projectsUrl);
 
     if (!projResponse.ok) {

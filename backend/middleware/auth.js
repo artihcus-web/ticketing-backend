@@ -58,6 +58,11 @@ export const verifyToken = async (req, res, next) => {
       let errorBody = '';
       try {
         errorBody = await response.text();
+        // Try to parse as JSON for cleaner logging if possible
+        try {
+          const jsonError = JSON.parse(errorBody);
+          errorBody = JSON.stringify(jsonError, null, 2);
+        } catch (e) { /* use raw text */ }
       } catch (e) {
         errorBody = 'Could not read response body';
       }
