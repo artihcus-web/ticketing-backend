@@ -83,6 +83,13 @@ router.get('/projects', verifyToken, async (req, res) => {
     const projResponse = await fetch(projectsUrl);
 
     if (!projResponse.ok) {
+      let errorBody = '';
+      try {
+        errorBody = await projResponse.text();
+      } catch (e) {
+        errorBody = 'Could not read response body';
+      }
+      console.error(`[DASHBOARD] ❌ External Projects API Error (Status ${projResponse.status}):`, errorBody);
       throw new Error(`External API returned ${projResponse.status}: ${projResponse.statusText}`);
     }
 
@@ -96,10 +103,11 @@ router.get('/projects', verifyToken, async (req, res) => {
         const pid = p._id || p.id;
         if (assignedProjectIds.includes(pid)) return true;
 
-        // Also check if user is listed in employees or projectManagers arrays
+        // Also check if user is listed in employees, projectManagers, or clients arrays
         const members = [
           ...(p.employees || []),
-          ...(p.projectManagers || [])
+          ...(p.projectManagers || []),
+          ...(p.clients || [])
         ];
 
         return members.some(m =>
@@ -108,12 +116,29 @@ router.get('/projects', verifyToken, async (req, res) => {
           (m.username && m.username.toLowerCase().trim() === userEmail)
         );
       })
-      .map(p => ({
-        id: p._id || p.id,
-        name: p.projectName || p.name,
-        description: p.description || 'External Project',
-        isExternal: true
-      }));
+      .map(p => {
+        let role = 'employee';
+
+        const checkMember = (m) =>
+          (m.email && m.email.toLowerCase().trim() === userEmail) ||
+          (m.employeeId && req.user.employeeId && m.employeeId === req.user.employeeId) ||
+          (m.username && m.username.toLowerCase().trim() === userEmail) ||
+          (m.username && req.user.userName && m.username.toLowerCase().trim() === req.user.userName.toLowerCase().trim());
+
+        const isPM = (p.projectManagers || []).some(checkMember);
+        const isClient = (p.clients || []).some(checkMember);
+
+        if (isPM) role = 'project_manager';
+        else if (isClient) role = 'client';
+
+        return {
+          id: p._id || p.id,
+          name: p.projectName || p.name,
+          description: p.description || 'External Project',
+          isExternal: true,
+          projectRole: role
+        };
+      });
 
     res.json({
       success: true,
@@ -143,62 +168,66 @@ router.get('/tickets', verifyToken, async (req, res) => {
     const db = await getDB();
     const ticketsCollection = db.collection('tickets');
 
-    let tickets = [];
+    // 1. Fetch ALL projects from external API to resolve variations
+    let searchIdentifiers = {
+      ids: new Set(),
+      names: new Set()
+    };
 
-    if (projectId) {
-      // Search by ID first
-      const query = { $or: [{ projectId: projectId }] };
+    if (projectId) searchIdentifiers.ids.add(projectId);
+    if (projectName) searchIdentifiers.names.add(projectName);
 
-      // Fetch project name from REST API to allow matching legacy tickets
-      try {
-        const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-        const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
-        const response = await fetch(projectsUrl);
+    try {
+      const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
+      const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
+      const response = await fetch(projectsUrl);
 
-        if (response.ok) {
-          const data = await response.json();
-          const projectsArray = Array.isArray(data) ? data : (data.projects || []);
-          const project = projectsArray.find(p =>
-            (p._id && p._id.toString() === projectId) ||
-            (p.id && p.id.toString() === projectId)
-          );
+      if (response.ok) {
+        const data = await response.json();
+        const projectsArray = Array.isArray(data) ? data : (data.projects || []);
 
-          if (project) {
-            const projectName = project.projectName || project.name;
-            if (projectName) {
-              query.$or.push({ project: projectName });
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching project from REST API:', err);
+        // Find the project(s) that match our search criteria
+        const matchingProjects = projectsArray.filter(p => {
+          const pId = (p._id || p.id || '').toString();
+          const pName = p.name || '';
+          const pProjectName = p.projectName || '';
+
+          return (projectId && pId === projectId) ||
+            (projectName && (pName === projectName || pProjectName === projectName));
+        });
+
+        // Collect ALL identifiers for these projects
+        matchingProjects.forEach(p => {
+          if (p._id) searchIdentifiers.ids.add(p._id.toString());
+          if (p.id) searchIdentifiers.ids.add(p.id.toString());
+          if (p.name) searchIdentifiers.names.add(p.name);
+          if (p.projectName) searchIdentifiers.names.add(p.projectName);
+        });
       }
-
-      const foundTickets = await ticketsCollection.find(query).toArray();
-      tickets = foundTickets.map((t) => ({
-        id: t._id.toString(),
-        ...t,
-        _id: undefined,
-      }));
+    } catch (err) {
+      console.error('[TICKETS] Failed to fetch external projects for query resolution:', err);
+      // Fallback: we still have the initial projectId/projectName in searchIdentifiers
     }
 
-    if (projectName) {
-      const byName = await ticketsCollection
-        .find({ project: projectName })
-        .toArray();
-      const ticketsByName = byName.map((t) => ({
-        id: t._id.toString(),
-        ...t,
-        _id: undefined,
-      }));
+    // 2. Build the inclusive MongoDB $or query
+    const orConditions = [];
+    searchIdentifiers.ids.forEach(id => {
+      orConditions.push({ projectId: id });
+    });
+    searchIdentifiers.names.forEach(name => {
+      orConditions.push({ project: name });
+    });
 
-      // Merge and deduplicate by id
-      const ticketMap = {};
-      [...tickets, ...ticketsByName].forEach((ticket) => {
-        ticketMap[ticket.id] = ticket;
-      });
-      tickets = Object.values(ticketMap);
+    if (orConditions.length === 0) {
+      return res.json({ success: true, tickets: [] });
     }
+
+    const foundTickets = await ticketsCollection.find({ $or: orConditions }).toArray();
+    let tickets = foundTickets.map((t) => ({
+      id: t._id.toString(),
+      ...t,
+      _id: undefined,
+    }));
 
     res.json({
       success: true,

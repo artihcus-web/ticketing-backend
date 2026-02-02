@@ -264,4 +264,44 @@ router.get('/tickets', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
+// DELETE /admin/tickets/:id - Delete a ticket (admin only)
+router.delete('/tickets/:id', verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getDB();
+    const ticketsCollection = db.collection('tickets');
+
+    let result;
+    try {
+      result = await ticketsCollection.deleteOne({ _id: new ObjectId(id) });
+    } catch (err) {
+      // If ObjectId conversion fails, try as string or by ticketId
+      result = await ticketsCollection.deleteOne({
+        $or: [
+          { _id: id },
+          { ticketId: id }
+        ]
+      });
+    }
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Ticket not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Ticket deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting admin ticket:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete ticket'
+    });
+  }
+});
+
 export default router;

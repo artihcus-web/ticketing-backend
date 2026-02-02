@@ -21,6 +21,13 @@ router.get('/', verifyToken, async (req, res) => {
     ]);
 
     if (!projectsResponse.ok) {
+      let errorBody = '';
+      try {
+        errorBody = await projectsResponse.text();
+      } catch (e) {
+        errorBody = 'Could not read response body';
+      }
+      console.error(`[PROJECTS] ❌ External Projects API Error (Status ${projectsResponse.status}):`, errorBody);
       throw new Error(`Projects API returned ${projectsResponse.status}: ${projectsResponse.statusText}`);
     }
 
@@ -48,7 +55,8 @@ router.get('/', verifyToken, async (req, res) => {
       // Combine employees and projectManagers arrays
       const allMembers = [
         ...(project.employees || []),
-        ...(project.projectManagers || [])
+        ...(project.projectManagers || []),
+        ...(project.clients || []).map(c => ({ ...c, userType: 'client' }))
       ];
 
       return {
@@ -68,8 +76,8 @@ router.get('/', verifyToken, async (req, res) => {
             uid: emp._id || emp.uid,
             email: fullEmployee?.email || emp.email,
             employeeId: emp.employeeId || fullEmployee?.employeeId,
-            role: fullEmployee?.role || 'employee',
-            userType: fullEmployee?.userType || 'employee',
+            role: fullEmployee?.role || (emp.userType === 'client' ? 'client' : 'employee'),
+            userType: fullEmployee?.userType || emp.userType || 'employee',
             status: fullEmployee?.status || (fullEmployee?.isActive ? 'active' : 'inactive')
           };
         }),
@@ -102,6 +110,13 @@ router.get('/:id', verifyToken, async (req, res) => {
     ]);
 
     if (!projectsResponse.ok) {
+      let errorBody = '';
+      try {
+        errorBody = await projectsResponse.text();
+      } catch (e) {
+        errorBody = 'Could not read response body';
+      }
+      console.error(`[PROJECTS] ❌ External Project Details API Error (Status ${projectsResponse.status}):`, errorBody);
       throw new Error(`Projects API returned ${projectsResponse.status}: ${projectsResponse.statusText}`);
     }
 
@@ -138,7 +153,8 @@ router.get('/:id', verifyToken, async (req, res) => {
     // Combine employees and projectManagers arrays
     const allMembers = [
       ...(project.employees || []),
-      ...(project.projectManagers || [])
+      ...(project.projectManagers || []),
+      ...(project.clients || []).map(c => ({ ...c, userType: 'client' }))
     ];
 
     const formattedProject = {
@@ -158,8 +174,8 @@ router.get('/:id', verifyToken, async (req, res) => {
           uid: emp._id || emp.uid,
           email: fullEmployee?.email || emp.email,
           employeeId: emp.employeeId || fullEmployee?.employeeId,
-          role: fullEmployee?.role || 'employee',
-          userType: fullEmployee?.userType || 'employee',
+          role: fullEmployee?.role || (emp.userType === 'client' ? 'client' : 'employee'),
+          userType: fullEmployee?.userType || emp.userType || 'employee',
           status: fullEmployee?.status || (fullEmployee?.isActive ? 'active' : 'inactive')
         };
       }),

@@ -92,11 +92,46 @@ router.post('/login', async (req, res) => {
           user: externalData.user
         });
       } else {
-        const errorData = await externalResponse.json().catch(() => ({}));
-        console.warn(`[AUTH] ❌ External login failed for ${loginIdentifier}:`, externalResponse.status);
+        let errorBody = '';
+        try {
+          errorBody = await externalResponse.text();
+        } catch (e) {
+          errorBody = 'Could not read response body';
+        }
+        console.warn(`[AUTH] ❌ External login failed for ${loginIdentifier} (Status ${externalResponse.status}):`, errorBody);
+
+        let errorMsg = 'Invalid email or password';
+        try {
+          const errorData = JSON.parse(errorBody);
+          errorMsg = errorData.message || errorMsg;
+        } catch (e) { /* use default */ }
+
+        if (externalResponse.status === 403 && (errorBody.includes('Client Portal') || errorBody.includes('client'))) {
+          console.log(`[AUTH] 🔄 403 detected, attempting client-specific login bridge...`);
+          const clientLoginUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/client-login`;
+          const clientResponse = await fetch(clientLoginUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: loginIdentifier, password })
+          });
+
+          if (clientResponse.ok) {
+            const clientData = await clientResponse.json();
+            console.log(`[AUTH] ✅ Client-specific login success for: ${loginIdentifier}`);
+            return res.json({
+              success: true,
+              token: clientData.token,
+              user: clientData.user
+            });
+          } else {
+            const clientErrorBody = await clientResponse.text().catch(() => 'Could not read error body');
+            console.warn(`[AUTH] ❌ Client-specific login failed (Status ${clientResponse.status}):`, clientErrorBody);
+          }
+        }
+
         return res.status(externalResponse.status).json({
           success: false,
-          error: errorData.message || 'Invalid email or password'
+          error: errorMsg
         });
       }
     } catch (externalErr) {

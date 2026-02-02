@@ -82,9 +82,18 @@ const fetchProjectMemberEmails = async (projectName) => {
 // GET /tickets/config/formConfig - Get form configuration
 router.get('/config/formConfig', verifyToken, async (req, res) => {
   try {
+    const { projectName } = req.query;
     const db = await getDB();
     const configCollection = db.collection('config');
-    const config = await configCollection.findOne({ _id: 'formConfig' });
+
+    let config = null;
+    if (projectName && projectName !== 'General') {
+      config = await configCollection.findOne({ _id: `formConfig_${projectName}` });
+    }
+
+    if (!config) {
+      config = await configCollection.findOne({ _id: 'formConfig' });
+    }
 
     if (!config) {
       return res.json({ success: true, formConfig: null });
@@ -102,7 +111,7 @@ router.get('/config/formConfig', verifyToken, async (req, res) => {
 // PUT /tickets/config/formConfig - Update form configuration
 router.put('/config/formConfig', verifyToken, async (req, res) => {
   try {
-    const { fields, moduleOptions, categoryOptions, subCategoryOptions } = req.body;
+    const { fields, moduleOptions, categoryOptions, subCategoryOptions, projectName } = req.body;
 
     const db = await getDB();
     const configCollection = db.collection('config');
@@ -113,13 +122,15 @@ router.put('/config/formConfig', verifyToken, async (req, res) => {
     if (categoryOptions !== undefined) updateData.categoryOptions = categoryOptions;
     if (subCategoryOptions !== undefined) updateData.subCategoryOptions = subCategoryOptions;
 
+    const configId = projectName && projectName !== 'General' ? `formConfig_${projectName}` : 'formConfig';
+
     await configCollection.updateOne(
-      { _id: 'formConfig' },
+      { _id: configId },
       { $set: updateData },
       { upsert: true }
     );
 
-    const updated = await configCollection.findOne({ _id: 'formConfig' });
+    const updated = await configCollection.findOne({ _id: configId });
     const { _id, ...formConfig } = updated;
     res.json({
       success: true,
