@@ -65,7 +65,7 @@ router.get('/projects', verifyToken, async (req, res) => {
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
 
     // 1. Fetch current user's assigned projects from employees API
-    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/employees`;
+    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}team/members`;
     const empResponse = await fetch(employeesUrl);
     let assignedProjectIds = [];
 
@@ -79,7 +79,7 @@ router.get('/projects', verifyToken, async (req, res) => {
     }
 
     // 2. Fetch all projects from REST API
-    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
+    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}projects`;
     const projResponse = await fetch(projectsUrl);
 
     if (!projResponse.ok) {
@@ -152,7 +152,7 @@ router.get('/tickets', verifyToken, async (req, res) => {
       // Fetch project name from REST API to allow matching legacy tickets
       try {
         const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-        const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
+        const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}projects`;
         const response = await fetch(projectsUrl);
 
         if (response.ok) {

@@ -5,7 +5,7 @@ dotenv.config();
 const testExternalAuth = async () => {
     const token = process.argv[2];
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/auth/me`;
+    const verifyUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}auth/verify`;
 
     console.log('--- Auth Diagnostic ---');
     console.log(`Environment: ${process.env.NODE_ENV || 'not set'}`);

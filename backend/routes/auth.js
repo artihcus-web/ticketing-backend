@@ -75,7 +75,7 @@ router.post('/login', async (req, res) => {
     console.log(`[AUTH] 🌉 Bridging login for: ${loginIdentifier}`);
     try {
       const apiBase = process.env.EMPLOYEES_API_URL || process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-      const externalLoginUrl = `${apiBase.replace(/\/+$/, '')}/api/auth/login`;
+      const externalLoginUrl = `${apiBase.replace(/\/+$/, '')}/auth/login`;
 
       const externalResponse = await fetch(externalLoginUrl, {
         method: 'POST',

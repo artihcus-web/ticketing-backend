@@ -9,8 +9,8 @@ const router = express.Router();
 router.get('/', verifyToken, async (req, res) => {
   try {
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
-    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/employees`;
+    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}projects`;
+    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}team/members`;
 
     console.log(`Fetching projects from: ${projectsUrl}`);
 
@@ -90,8 +90,8 @@ router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const apiBase = process.env.VITE_EMPLOYEES_API_URL || 'https://api.artihcus.com:8443/';
-    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/projects`;
-    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}api/employees`;
+    const projectsUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}projects`;
+    const employeesUrl = `${apiBase.endsWith('/') ? apiBase : apiBase + '/'}team/members`;
 
     console.log(`Fetching project ${id} from: ${projectsUrl}`);
 
