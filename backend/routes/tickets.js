@@ -307,7 +307,9 @@ router.post('/', verifyToken, async (req, res) => {
 
     // Base ticket data (without ticketNumber yet)
     const now = new Date();
-    const baseTicketData = {
+
+    // Extract standard fields
+    const standardFields = {
       subject,
       customer,
       email,
@@ -326,6 +328,26 @@ router.post('/', verifyToken, async (req, res) => {
       lastUpdated: now,
       userId: req.user.id,
       reportedBy: reportedBy || ''
+    };
+
+    // Get custom fields by excluding standard fields
+    const excludedFields = [
+      'subject', 'customer', 'email', 'project', 'projectId',
+      'module', 'category', 'subCategory', 'typeOfIssue',
+      'priority', 'description', 'attachments', 'reportedBy'
+    ];
+
+    const customFields = {};
+    Object.keys(req.body).forEach(key => {
+      if (!excludedFields.includes(key)) {
+        customFields[key] = req.body[key];
+      }
+    });
+
+    // Combine standard fields with custom fields
+    const baseTicketData = {
+      ...standardFields,
+      ...customFields
     };
 
     const ticketsCollection = db.collection('tickets');
